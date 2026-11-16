@@ -173,9 +173,70 @@ If you downloaded **`cdp_api_key.json`** from Coinbase:
 
 ---
 
-## 🌐 Optional Nginx Configuration
+## 🌐 Optional Reverse Proxy Configuration
 
-The bot runs standalone on port `29600`. If you wish to front it with Nginx for domain names and SSL:
+The bot runs standalone on port `29600`. If you wish to front it with a web server for domain names, SSL/TLS certificates, or subpaths, use the configurations below.
+
+### Option A: Apache 2.4 Configuration (`mod_proxy` + `mod_proxy_wstunnel`)
+
+1. **Enable required Apache modules:**
+   ```bash
+   sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers
+   sudo systemctl restart apache2
+   ```
+
+2. **Dedicated VirtualHost (Subdomain or Root Domain):**  
+   Create `/etc/apache2/sites-available/crypto-bot.conf`:
+   ```apache
+   <VirtualHost *:80>
+       ServerName crypto.yourdomain.com
+
+       ProxyPreserveHost On
+       ProxyRequests Off
+
+       # 1. Forward WebSockets (/ws) to the trading engine
+       RewriteEngine On
+       RewriteCond %{HTTP:Upgrade} websocket [NC]
+       RewriteCond %{HTTP:Connection} upgrade [NC]
+       RewriteRule ^/?(.*) "ws://127.0.0.1:29600/$1" [P,L]
+
+       # 2. Forward standard HTTP API requests and web UI
+       ProxyPass / http://127.0.0.1:29600/
+       ProxyPassReverse / http://127.0.0.1:29600/
+
+       # Header hygiene
+       RequestHeader set X-Forwarded-Proto "http"
+   </VirtualHost>
+   ```
+
+3. **Subpath / Subdirectory Setup (e.g., `https://yourdomain.com/crypto`):**  
+   If proxying under an existing website's subpath, add this inside your existing VirtualHost:
+   ```apache
+   ProxyPreserveHost On
+
+   # Forward WebSocket connection upgrades under /crypto/
+   RewriteEngine On
+   RewriteCond %{HTTP:Upgrade} websocket [NC]
+   RewriteCond %{HTTP:Connection} upgrade [NC]
+   RewriteRule ^/crypto/(.*) "ws://127.0.0.1:29600/$1" [P,L]
+
+   # Forward HTTP traffic
+   ProxyPass /crypto/ http://127.0.0.1:29600/
+   ProxyPassReverse /crypto/ http://127.0.0.1:29600/
+   ```
+
+4. **Enable Site & Obtain Free SSL:**
+   ```bash
+   sudo a2ensite crypto-bot.conf
+   sudo systemctl reload apache2
+   sudo certbot --apache -d crypto.yourdomain.com
+   ```
+
+---
+
+### Option B: Nginx Configuration
+
+If using Nginx, create `/etc/nginx/sites-available/crypto-bot`:
 
 ```nginx
 server {
@@ -193,6 +254,13 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+```
+
+Enable and reload Nginx:
+```bash
+sudo ln -s /etc/nginx/sites-available/crypto-bot /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d crypto.yourdomain.com
 ```
 
 ---
