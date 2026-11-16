@@ -265,5 +265,15 @@ sudo certbot --nginx -d crypto.yourdomain.com
 
 ---
 
+## 👥 Contributors & Credits
+
+* **ripsnortntear ([@ripsnortntear](https://github.com/ripsnortntear))** — Project Lead, Architecture, Trading Heuristics & Live Exchange Testing.
+* **Antigravity (Google DeepMind)** — Autonomous AI Engineering Partner (SQLite zero-dependency migration, universal cross-platform setup, Coinbase CDP key importer, Apache/Nginx reverse proxy engineering).
+* **Upstream Libraries:** [Coinbase Developer Platform](https://portal.cdp.coinbase.com/), [CCXT](https://github.com/ccxt/ccxt), [Node.js](https://nodejs.org/), [Express](https://expressjs.com/), [ws](https://github.com/websockets/ws), and [Lightweight Charts](https://www.tradingview.com/lightweight-charts/).
+
+See [CONTRIBUTORS.md](CONTRIBUTORS.md) for full details.
+
+---
+
 ## 📄 License
-MIT License. Built for autonomous cryptocurrency trading operations across all Linux environments.
+MIT License. Built for autonomous cryptocurrency trading operations across Windows and Linux environments.

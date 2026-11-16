@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+package-lock.json.bak
+
+# Production Build Output (Users build locally via setup.sh / setup.bat or npm run build)
+# Note: Keep dist tracked if desired, or let setup compile.
+# Let's keep dist/ tracked since setup.sh/bat compiles it, but dist was committed.
+# Actually let's check dist/
+
+# Environment Variables & API Secrets (CRITICAL: NEVER COMMIT KEYS!)
+.env
+.env.*
+!.env.example
+cdp_api_key.json
+*.pem
+*.key
+
+# Local SQLite Database & Daemon State
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.log
+data/*.pid
+!data/.gitkeep
+
+# Standalone Portable Runtime Cache
+runtime/
+
+# Distribution Archives
+*.tar.gz
+*.zip
+*.sha256
+
+# Operating System & Editor Files
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/

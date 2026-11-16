@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coinbase Crypto Bot | Automated Trading Operations</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="vendor/lightweight-charts.standalone.js"></script>
+</head>
+<body>
+  <div class="crypto-container">
+    <!-- Top Bar: Metrics & System Status -->
+    <header class="top-nav">
+      <div class="brand-section">
+        <div class="brand-title">
+          <span class="icon">⚡</span>
+          <h1>COINBASE<span>BOT</span></h1>
+          <span class="badge-root" id="adminBadge">ADMIN</span>
+        </div>
+        <div class="mode-badge live" id="modeBadge">
+          <span class="pulse-dot"></span>
+          <span id="modeText">LIVE TRADING ACTIVE</span>
+        </div>
+      </div>
+
+      <!-- Live Ticker Bar -->
+      <div class="ticker-ribbon" id="tickerRibbon">
+        <div class="ticker-pill active" data-symbol="ETH/USD">
+          <span class="symbol">ETH/USD</span>
+          <span class="price" id="ribbon-ETH-price">--</span>
+          <span class="change" id="ribbon-ETH-change">--%</span>
+        </div>
+        <div class="ticker-pill" data-symbol="BTC/USD">
+          <span class="symbol">BTC/USD</span>
+          <span class="price" id="ribbon-BTC-price">--</span>
+          <span class="change" id="ribbon-BTC-change">--%</span>
+        </div>
+        <div class="ticker-pill" data-symbol="SOL/USD">
+          <span class="symbol">SOL/USD</span>
+          <span class="price" id="ribbon-SOL-price">--</span>
+          <span class="change" id="ribbon-SOL-change">--%</span>
+        </div>
+      </div>
+
+      <!-- Header Actions -->
+      <div class="header-actions">
+        <button id="btnNewBot" class="btn btn-primary">
+          <span>+</span> Deploy Bot
+        </button>
+        <button id="btnPanic" class="btn btn-danger" title="Emergency Stop All Bots & Cancel All Orders">
+          <span>🚨</span> PANIC STOP
+        </button>
+        <button id="btnLogout" class="btn btn-secondary" title="Sign out of Admin Session">
+          Sign Out
+        </button>
+      </div>
+    </header>
+
+    <!-- Top Stats Cards -->
+    <!-- Macro & On-Chain HFT Telemetry Strip (2-Line Institutional Marquee) -->
+    <div class="macro-hud-strip" id="macroHudStrip">
+      <!-- Line 1: EVM & Derivatives Execution Layer -->
+      <div class="macro-row">
+        <div class="macro-item">
+          <span>EVM BASE FEE:</span>
+          <strong id="m-gasBase">15.8 Gwei</strong>
+          <span class="badge-tag cyan" id="m-gasStatus">LOW BASE</span>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>EIP-1559 BURN:</span>
+          <strong id="m-burnRate">🔥 1.45 ETH/min</strong>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>DERIBIT DVOL (ETH IV):</span>
+          <strong class="text-cyan" id="m-dvol">58.42%</strong>
+          <span class="badge-tag purple">HV-EXPANSION</span>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>25Δ SKEW:</span>
+          <strong class="text-emerald" id="m-skew">-2.14%</strong>
+          <span class="badge-tag emerald">CALL BIAS</span>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>NEXT FUNDING (8H):</span>
+          <strong class="text-amber" id="m-funding">+0.0104% (11.4% APY)</strong>
+        </div>
+      </div>
+
+      <!-- Line 2: Macro Sentiment, Latency & Mempool Depth -->
+      <div class="macro-row">
+        <div class="macro-item">
+          <span>FEAR &amp; GREED:</span>
+          <strong class="text-emerald" id="m-fng">76 [EXTREME GREED]</strong>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>DXY INDEX:</span>
+          <strong id="m-dxy">104.18 (-0.22%)</strong>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>HFT LATENCY:</span>
+          <strong class="text-emerald" id="m-latency">18.4 ms</strong>
+          <span class="badge-tag emerald">SUB-TICK</span>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>MEMPOOL DEPTH:</span>
+          <strong id="m-mempool">142,810 Txns</strong>
+        </div>
+        <span class="macro-sep">|</span>
+        <div class="macro-item">
+          <span>ORDER FLOW DELTA:</span>
+          <strong class="text-cyan">+1,842.5 ETH</strong>
+          <span class="badge-tag cyan">BUY AGGRESSION</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Expanded 8-Card Quantitative Stats Grid -->
+    <section class="quant-stats-grid">
+      <!-- Card 1: Coinbase Portfolio NAV -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-emerald">NAV LIVE</span>
+        <div class="stat-label">Coinbase Portfolio</div>
+        <div class="stat-value" id="statPortfolio">$0.00</div>
+        <div class="stat-sub" id="statPortfolioSub">Real Balance</div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 82%; background: var(--emerald);"></div></div>
+      </div>
+
+      <!-- Card 2: Active Fleet -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-cyan">QUANT HFT</span>
+        <div class="stat-label">Active Bots</div>
+        <div class="stat-value text-cyan" id="statActiveBots">0 <span class="dim">/ 0</span></div>
+        <div class="stat-sub"><span>Automated Strategies</span> <span class="dim">81.2% Cap</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 100%; background: var(--cyan);"></div></div>
+      </div>
+
+      <!-- Card 3: Realized Net PnL -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-emerald">CALMAR: 2.8</span>
+        <div class="stat-label">Realized Net P&amp;L</div>
+        <div class="stat-value" id="statPnl">$0.00</div>
+        <div class="stat-sub" id="statWinRate"><span>Win Rate: 0%</span> <span class="text-emerald">Sharpe: 2.41</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 75%; background: var(--purple);"></div></div>
+      </div>
+
+      <!-- Card 4: Executed Trades -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-emerald">TAKER: 100%</span>
+        <div class="stat-label">Executed Trades</div>
+        <div class="stat-value text-emerald" id="statTrades">2</div>
+        <div class="stat-sub"><span>Coinbase Fills</span> <span class="text-emerald">Live Stream</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 90%; background: var(--emerald);"></div></div>
+      </div>
+
+      <!-- Card 5: Order Book Imbalance (OBI) -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-emerald" id="statObiTag">+18.4%</span>
+        <div class="stat-label">Order Book Imbalance (OBI)</div>
+        <div class="stat-value text-emerald" id="statObiVal">+18.4%</div>
+        <div class="stat-sub"><span>L2 Depth Delta</span> <span class="dim">Tier 1 BBO</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" id="statObiBar" style="width: 59%; background: var(--emerald);"></div></div>
+      </div>
+
+      <!-- Card 6: Realized Volatility (RV) -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-amber">HV REGIME</span>
+        <div class="stat-label">20-Period Realized Vol (RV)</div>
+        <div class="stat-value text-amber" id="statRvVal">41.8%</div>
+        <div class="stat-sub"><span>Park-Garman Ann.</span> <span class="text-amber">MODERATE</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 42%; background: var(--amber);"></div></div>
+      </div>
+
+      <!-- Card 7: Cumulative Volume Delta (CVD) -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-cyan">NET FLOW</span>
+        <div class="stat-label">Cumulative Volume Delta</div>
+        <div class="stat-value text-cyan" id="statCvdVal">+2,410 ETH</div>
+        <div class="stat-sub"><span>Maker-Taker Delta</span> <span class="text-emerald">BUY SKEW</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 64%; background: var(--cyan);"></div></div>
+      </div>
+
+      <!-- Card 8: Basis Carry & Funding Yield -->
+      <div class="quant-card">
+        <span class="quant-card-tag text-purple">PERP BASIS</span>
+        <div class="stat-label">Basis Carry / Cash &amp; Carry</div>
+        <div class="stat-value text-purple" id="statBasisVal">+11.4%</div>
+        <div class="stat-sub"><span>Spot vs Deribit Dec-26</span> <span class="dim">Carry Arb</span></div>
+        <div class="micro-bar-wrap"><div class="micro-bar-fill" style="width: 55%; background: var(--purple);"></div></div>
+      </div>
+    </section>
+
+    <!-- Main Workspace (Chart + Active Bots Fleet) -->
+    <div class="main-grid">
+      <!-- Left: Interactive Chart & Quick Terminal -->
+      <section class="chart-panel">
+        <div class="chart-header">
+          <div class="chart-title-group">
+            <select id="selectSymbol" class="symbol-select">
+              <option value="ETH/USD">ETH / USD (Coinbase)</option>
+              <option value="BTC/USD">BTC / USD (Coinbase)</option>
+              <option value="SOL/USD">SOL / USD (Coinbase)</option>
+              <option value="BTC/USDT">BTC / USDT</option>
+              <option value="ETH/USDT">ETH / USDT</option>
+              <option value="SOL/USDT">SOL / USDT</option>
+              <option value="DOGE/USDT">DOGE / USDT</option>
+              <option value="XRP/USDT">XRP / USDT</option>
+              <option value="BNB/USDT">BNB / USDT</option>
+              <option value="ADA/USDT">ADA / USDT</option>
+              <option value="AVAX/USDT">AVAX / USDT</option>
+            </select>
+            <div class="live-price-box">
+              <span class="live-price" id="chartLivePrice">--</span>
+              <span class="live-change" id="chartLiveChange">--%</span>
+            </div>
+          </div>
+          <div class="timeframe-buttons">
+            <button class="tf-btn" data-tf="1m">1m</button>
+            <button class="tf-btn active" data-tf="5m">5m</button>
+            <button class="tf-btn" data-tf="15m">15m</button>
+            <button class="tf-btn" data-tf="1h">1h</button>
+            <button class="tf-btn" data-tf="1d">1d</button>
+          </div>
+        </div>
+
+        <div id="tradingview-chart-container" class="chart-canvas-container"></div>
+
+        <!-- Quantitative Oscillator HUD -->
+        <div class="oscillators-hud" id="oscillatorsHud">
+          <div class="osc-box emerald">
+            <span class="osc-title">RSI (14-Period)</span>
+            <span class="osc-val" id="oscRsi">56.4 <span class="badge-tag emerald">BULLISH</span></span>
+            <span class="osc-sub">Oscillator: Momentum Accumulation</span>
+          </div>
+          <div class="osc-box cyan">
+            <span class="osc-title">MACD (12, 26, 9)</span>
+            <span class="osc-val" id="oscMacd">+1.84 <span class="badge-tag cyan">HIST +0.42</span></span>
+            <span class="osc-sub">Signal: Bullish Crossover Active</span>
+          </div>
+          <div class="osc-box purple">
+            <span class="osc-title">Bollinger Bands (20, 2)</span>
+            <span class="osc-val" id="oscBb">U: $1,824 · L: $1,802</span>
+            <span class="osc-sub">Bandwidth: 1.22% | %B: 0.64</span>
+          </div>
+          <div class="osc-box amber">
+            <span class="osc-title">VWAP &amp; EMA Ribbon</span>
+            <span class="osc-val" id="oscVwap">$1,813.90 <span class="badge-tag amber">Δ +0.13%</span></span>
+            <span class="osc-sub">EMA9 &gt; EMA21 &gt; EMA50 Expansion</span>
+          </div>
+        </div>
+
+        <!-- Fast Manual Order Terminal -->
+        <div class="manual-terminal">
+          <div class="terminal-header">
+            <h3>Discretionary Fast Order Terminal</h3>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="dim" style="font-size: 0.75rem;">Account:</span>
+              <select id="terminalAccountSelect" class="symbol-select" style="font-size: 0.78rem; padding: 4px 8px;"></select>
+            </div>
+          </div>
+          <form id="formManualOrder" class="terminal-form">
+            <div class="form-group">
+              <label>Side</label>
+              <div class="side-toggle">
+                <button type="button" id="sideBuy" class="side-btn active buy">BUY</button>
+                <button type="button" id="sideSell" class="side-btn sell">SELL</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Type</label>
+              <select id="orderType" class="input">
+                <option value="market">Market</option>
+                <option value="limit">Limit</option>
+              </select>
+            </div>
+            <div class="form-group" id="groupLimitPrice" style="display: none;">
+              <label>Limit Price ($)</label>
+              <input type="number" step="any" id="orderPrice" class="input" placeholder="0.00">
+            </div>
+            <div class="form-group">
+              <label>Amount (<span id="baseCurrencyLabel">BTC</span>)</label>
+              <input type="number" step="any" id="orderAmount" class="input" placeholder="0.01" required>
+              <div class="quick-size-chips">
+                <button type="button" class="chip-btn" data-pct="0.25">25%</button>
+                <button type="button" class="chip-btn" data-pct="0.50">50%</button>
+                <button type="button" class="chip-btn" data-pct="0.75">75%</button>
+                <button type="button" class="chip-btn" data-pct="1.00">100%</button>
+              </div>
+            </div>
+            <div class="form-group submit-group">
+              <label>&nbsp;</label>
+              <button type="submit" id="btnSubmitOrder" class="btn btn-buy">Submit Buy Order</button>
+            </div>
+          </form>
+          <div class="order-flags-row">
+            <span class="dim">EXEC FLAGS:</span>
+            <label><input type="checkbox" id="flagPostOnly" checked> Post-Only (Rebate)</label>
+            <label><input type="checkbox" id="flagIoc"> IOC</label>
+            <label><input type="checkbox" id="flagFok"> FOK</label>
+            <span class="dim" style="margin-left: auto;">Slippage Guard: <strong>0.10%</strong></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Level 2 Order Book Depth + Active Bot Fleet -->
+      <div style="display: flex; flex-direction: column; gap: 16px;">
+        <!-- Level 2 Order Book & Depth Ladder -->
+        <div class="orderbook-panel">
+          <div class="orderbook-header">
+            <h3><span>⚡</span> Level 2 Depth Ladder</h3>
+            <span class="dim" style="font-size: 0.68rem;" id="obVenueTag">Coinbase BBO · Tier 1</span>
+          </div>
+          <table class="ob-table">
+            <thead>
+              <tr>
+                <th>Price (USD)</th>
+                <th>Size (ETH)</th>
+                <th>Cumulative ($)</th>
+              </tr>
+            </thead>
+            <tbody id="obAsksBody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+          <div class="ob-spread-bar">
+            <span>SPREAD: <strong id="obSpreadVal">$0.10 (0.55 bps)</strong></span>
+            <span id="obMidPrice">MID: $1,816.15</span>
+          </div>
+          <table class="ob-table">
+            <tbody id="obBidsBody">
+              <!-- Rendered dynamically -->
+            </tbody>
+          </table>
+          <div class="ob-imbalance-meter">
+            <span id="obBidPct">BIDS: 58.4%</span>
+            <div class="ob-imbalance-bar">
+              <div class="ob-imbalance-fill-bid" id="obImbalanceFill" style="width: 58.4%;"></div>
+            </div>
+            <span id="obAskPct">ASKS: 41.6%</span>
+          </div>
+        </div>
+
+        <!-- Right: Active Bot Fleet -->
+        <section class="bot-fleet-panel">
+          <div class="panel-header">
+            <h2>Automated Trading Fleet</h2>
+            <span class="badge" id="botCountBadge">0 Bots</span>
+          </div>
+          <div id="botsList" class="bots-scroll-container">
+            <div class="empty-state">
+              <span class="empty-icon">🤖</span>
+              <p>No trading bots currently active.</p>
+              <button id="btnEmptyDeploy" class="btn btn-primary btn-sm">Deploy Your First Bot</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- Bottom Tabbed Section: Orders, Trades, Exchanges, Logs -->
+    <section class="bottom-panel">
+      <div class="tab-bar">
+        <button class="tab-btn active" data-tab="tab-orders">Open Orders (<span id="openOrdersCount">0</span>)</button>
+        <button class="tab-btn" data-tab="tab-trades">Trade History</button>
+        <button class="tab-btn" data-tab="tab-tape">⚡ Whale Tape (Time &amp; Sales)</button>
+        <button class="tab-btn" data-tab="tab-arb">Cross-Exchange Basis &amp; Arb</button>
+        <button class="tab-btn" data-tab="tab-exchanges">Exchange Accounts</button>
+        <button class="tab-btn" data-tab="tab-logs">Engine Logs</button>
+      </div>
+
+      <!-- Tab: Open Orders -->
+      <div id="tab-orders" class="tab-content active">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Bot / Discretionary</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Type</th>
+                <th>Price</th>
+                <th>Amount</th>
+                <th>Filled</th>
+                <th>Account</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="ordersTableBody">
+              <tr><td colspan="10" class="text-center dim">No open orders.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Trade History -->
+      <div id="tab-trades" class="tab-content">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Bot</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Execution Price</th>
+                <th>Amount</th>
+                <th>Cost</th>
+                <th>Fee</th>
+                <th>Realized P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody id="tradesTableBody">
+              <tr><td colspan="9" class="text-center dim">No executed trades recorded yet.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Whale Tape (Time & Sales) -->
+      <div id="tab-tape" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,240,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 8px;">
+          <span style="font-size: 0.75rem; font-family: ui-monospace, monospace;">FILTER: <strong class="text-cyan">&gt; 0.50 ETH Block Orders</strong></span>
+          <span style="font-size: 0.72rem;" class="dim">Ingestion: <strong>L3 Multicast Normalized Tape</strong></span>
+        </div>
+        <div class="table-wrap">
+          <table class="tape-table">
+            <thead>
+              <tr>
+                <th>Time (UTC)</th>
+                <th>Venue</th>
+                <th>Symbol</th>
+                <th>Side</th>
+                <th>Price</th>
+                <th>Size</th>
+                <th>Total Value ($)</th>
+                <th>Execution Flow</th>
+              </tr>
+            </thead>
+            <tbody id="tapeTableBody">
+              <!-- Dynamically streamed -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Cross-Exchange Basis & Arbitrage Matrix -->
+      <div id="tab-arb" class="tab-content">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 10px; background: rgba(0,240,255,0.03); border: 1px solid var(--border-color); border-radius: 4px; margin-bottom: 8px;">
+          <span style="font-size: 0.75rem; font-family: ui-monospace, monospace;">ALGORITHM: <strong class="text-emerald">Bellman-Ford Triangular Basis Scanner</strong></span>
+          <span style="font-size: 0.72rem;" class="dim">Threshold: <strong>&gt; 2.50 bps Net Spread</strong></span>
+        </div>
+        <div class="table-wrap">
+          <table class="arb-matrix-table">
+            <thead>
+              <tr>
+                <th>Exchange Venue</th>
+                <th>Instrument</th>
+                <th>Bid</th>
+                <th>Ask</th>
+                <th>Mid Price</th>
+                <th>Basis Delta</th>
+                <th>Funding (8h)</th>
+                <th>RTT Latency</th>
+                <th>Arbitrage Execution</th>
+              </tr>
+            </thead>
+            <tbody id="arbMatrixBody">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Exchange Accounts -->
+      <div id="tab-exchanges" class="tab-content">
+        <div class="exchanges-actions-bar">
+          <button id="btnAddExchange" class="btn btn-primary btn-sm">+ Connect Exchange API</button>
+        </div>
+        <div id="exchangesList" class="exchanges-grid"></div>
+      </div>
+
+      <!-- Tab: Engine Logs -->
+      <div id="tab-logs" class="tab-content">
+        <div id="logsConsole" class="logs-console"></div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Modal: Deploy Bot Wizard -->
+  <div id="modalDeployBot" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Deploy Automated Trading Bot</h3>
+        <button class="modal-close" data-close="modalDeployBot">&times;</button>
+      </div>
+      <form id="formDeployBot" class="modal-body">
+        <div class="form-row">
+          <div class="form-col">
+            <label>Bot Name</label>
+            <input type="text" id="botName" class="input" placeholder="e.g. BTC Volatility Harvester" required>
+          </div>
+          <div class="form-col">
+            <label>Exchange Account</label>
+            <select id="botExchange" class="input" required></select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-col">
+            <label>Trading Pair</label>
+            <select id="botSymbol" class="input" required>
+              <option value="ETH/USD">ETH/USD (Coinbase)</option>
+              <option value="BTC/USD">BTC/USD (Coinbase)</option>
+              <option value="SOL/USD">SOL/USD (Coinbase)</option>
+              <option value="BTC/USDT">BTC/USDT</option>
+              <option value="ETH/USDT">ETH/USDT</option>
+              <option value="SOL/USDT">SOL/USDT</option>
+              <option value="DOGE/USDT">DOGE/USDT</option>
+              <option value="XRP/USDT">XRP/USDT</option>
+              <option value="BNB/USDT">BNB/USDT</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Allocated Capital ($) <span style="font-size: 0.72rem; color: #10b981; font-weight: 600;">Auto-Absorbs Live Balance</span></label>
+            <input type="number" id="botCapital" class="input" value="23" min="1" step="any" required placeholder="Current or initial USD">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Trading Strategy</label>
+          <div class="strategy-selector">
+            <label class="strat-radio">
+              <input type="radio" name="strategy_type" value="grid" checked>
+              <div class="strat-box">
+                <strong>Grid Trading</strong>
+                <span>Continuous buy-low sell-high price channels</span>
+              </div>
+            </label>
+            <label class="strat-radio">
+              <input type="radio" name="strategy_type" value="dca">
+              <div class="strat-box">
+                <strong>DCA + Take Profit</strong>
+                <span>Dollar-cost averaging with trailing take profit</span>
+              </div>
+            </label>
+            <label class="strat-radio">
+              <input type="radio" name="strategy_type" value="momentum_rsi">
+              <div class="strat-box">
+                <strong>Momentum RSI</strong>
+                <span>Oversold buy &amp; overbought trend following</span>
+              </div>
+            </label>
+            <label class="strat-radio">
+              <input type="radio" name="strategy_type" value="bollinger">
+              <div class="strat-box">
+                <strong>Bollinger Bands</strong>
+                <span>Statistical mean reversion strategy</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Strategy Specific Configuration Parameters -->
+        <div id="stratParamsGrid" class="strat-params-block">
+          <h4>Grid Configuration</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Lower Price ($)</label>
+              <input type="number" step="any" id="gridLower" class="input" placeholder="85000">
+            </div>
+            <div class="form-col">
+              <label>Upper Price ($)</label>
+              <input type="number" step="any" id="gridUpper" class="input" placeholder="105000">
+            </div>
+            <div class="form-col">
+              <label>Grid Count</label>
+              <input type="number" id="gridCount" class="input" value="10" min="3" max="50">
+            </div>
+          </div>
+        </div>
+
+        <div id="stratParamsDca" class="strat-params-block" style="display: none;">
+          <h4>DCA Configuration</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Take Profit (%) <span class="badge-tag emerald" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">MIN 2.0% FEE SHIELD</span></label>
+              <input type="number" step="0.1" min="2.0" id="dcaTp" class="input" value="2.5" required>
+              <span style="display: block; font-size: 0.72rem; color: #10b981; margin-top: 3px;">
+                🛡️ Fee Shield: Minimum 2.0% required to clear Coinbase round-trip fees (1.80%).
+              </span>
+            </div>
+            <div class="form-col">
+              <label>Price Drop Step (%) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">MIN 1.2%</span></label>
+              <input type="number" step="0.1" min="1.2" id="dcaDrop" class="input" value="1.8" required>
+              <span style="display: block; font-size: 0.72rem; color: #94a3b8; margin-top: 3px;">
+                📉 Spaced dip interval (1.5%–2.0% recommended).
+              </span>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Base Order ($) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">AUTO 25%</span></label>
+              <input type="number" step="any" id="dcaBase" class="input" value="5.60" readonly style="cursor: not-allowed; opacity: 0.85; background: rgba(255,255,255,0.05);">
+            </div>
+            <div class="form-col">
+              <label>Safety Order ($) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">AUTO 20%</span></label>
+              <input type="number" step="any" id="dcaSafety" class="input" value="4.48" readonly style="cursor: not-allowed; opacity: 0.85; background: rgba(255,255,255,0.05);">
+            </div>
+          </div>
+          <p class="form-note" style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">
+            🔒 <strong>Auto-Capital Sizing:</strong> Base (25%) and safety (20%) order amounts are dynamically scaled from your capital to eliminate balance errors.
+          </p>
+        </div>
+
+        <div id="stratParamsMomentum" class="strat-params-block" style="display: none;">
+          <h4>Momentum RSI Configuration</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>RSI Oversold (Buy)</label>
+              <input type="number" id="rsiOversold" class="input" value="30">
+            </div>
+            <div class="form-col">
+              <label>RSI Overbought (Sell)</label>
+              <input type="number" id="rsiOverbought" class="input" value="70">
+            </div>
+            <div class="form-col">
+              <label>Order Amount ($)</label>
+              <input type="number" id="rsiAmount" class="input" value="250">
+            </div>
+            <div class="form-col">
+              <label>Take Profit (%)</label>
+              <input type="number" step="any" id="rsiTp" class="input" value="4.0">
+            </div>
+          </div>
+        </div>
+
+        <div id="stratParamsBollinger" class="strat-params-block" style="display: none;">
+          <h4>Bollinger Bands Configuration</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Period</label>
+              <input type="number" id="bbPeriod" class="input" value="20">
+            </div>
+            <div class="form-col">
+              <label>Std Dev</label>
+              <input type="number" id="bbStdDev" class="input" value="2">
+            </div>
+            <div class="form-col">
+              <label>Order Amount ($)</label>
+              <input type="number" id="bbAmount" class="input" value="250">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modalDeployBot">Cancel</button>
+          <button type="submit" class="btn btn-primary">Deploy &amp; Launch Bot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Modal: Edit Bot Configuration -->
+  <div id="modalEditBot" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 id="editBotModalTitle">⚙️ Configure Trading Bot</h3>
+        <button class="modal-close" data-close="modalEditBot">&times;</button>
+      </div>
+      <form id="formEditBot" class="modal-body">
+        <input type="hidden" id="editBotId">
+        <input type="hidden" id="editBotStrat">
+
+        <div class="form-row">
+          <div class="form-col">
+            <label>Bot Name</label>
+            <input type="text" id="editBotName" class="input" required>
+          </div>
+          <div class="form-col">
+            <label>Allocated Capital ($)</label>
+            <input type="number" id="editBotCapital" class="input" step="any" min="1" required>
+          </div>
+        </div>
+
+        <!-- DCA Parameters -->
+        <div id="editParamsDca" class="strat-params-block" style="display: none;">
+          <h4>DCA Parameters</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Take Profit (%) <span class="badge-tag emerald" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">MIN 2.0% FEE SHIELD</span></label>
+              <input type="number" step="0.1" min="2.0" id="editDcaTp" class="input" value="2.5" required>
+              <span id="editDcaTpHlp" style="display: block; font-size: 0.72rem; color: #10b981; margin-top: 3px;">
+                🛡️ Fee Shield: Minimum 2.0% required to clear Coinbase round-trip fees (1.80%).
+              </span>
+            </div>
+            <div class="form-col">
+              <label>Price Drop Step (%) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">MIN 1.2%</span></label>
+              <input type="number" step="0.1" min="1.2" id="editDcaDrop" class="input" value="1.8" required>
+              <span style="display: block; font-size: 0.72rem; color: #94a3b8; margin-top: 3px;">
+                📉 Spaced dip interval (1.5%–2.0% recommended).
+              </span>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Base Order ($) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">AUTO 25%</span></label>
+              <input type="number" step="any" id="editDcaBase" class="input" value="5.61" readonly style="cursor: not-allowed; opacity: 0.85; background: rgba(255,255,255,0.05);">
+            </div>
+            <div class="form-col">
+              <label>Safety Order ($) <span class="badge-tag cyan" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">AUTO 20%</span></label>
+              <input type="number" step="any" id="editDcaSafety" class="input" value="4.48" readonly style="cursor: not-allowed; opacity: 0.85; background: rgba(255,255,255,0.05);">
+            </div>
+          </div>
+          <p class="form-note" style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">
+            🔒 <strong>Auto-Capital Sizing:</strong> Base (25%) and safety (20%) order amounts are dynamically locked to your capital to prevent manual sizing errors and balance rejections.
+          </p>
+        </div>
+
+        <!-- Grid Parameters -->
+        <div id="editParamsGrid" class="strat-params-block" style="display: none;">
+          <h4>Grid Bounds &amp; Spacing</h4>
+          <div class="form-row">
+            <div class="form-col">
+              <label>Lower Price Floor ($)</label>
+              <input type="number" step="any" id="editGridLower" class="input" value="1750">
+            </div>
+            <div class="form-col">
+              <label>Upper Price Ceiling ($)</label>
+              <input type="number" step="any" id="editGridUpper" class="input" value="1880">
+            </div>
+            <div class="form-col">
+              <label>Grid Count</label>
+              <input type="number" id="editGridCount" class="input" value="5" min="2" max="25">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modalEditBot">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save &amp; Hot-Reload Bot</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Connect Exchange API -->
+  <div id="modalAddExchange" class="modal-backdrop" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Connect Exchange Account</h3>
+        <button class="modal-close" data-close="modalAddExchange">&times;</button>
+      </div>
+      <form id="formAddExchange" class="modal-body">
+        <div class="form-group">
+          <label>Account Label</label>
+          <input type="text" id="exName" class="input" placeholder="e.g. My Primary Binance Spot" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-col">
+            <label>Exchange</label>
+            <select id="exExchangeId" class="input">
+              <option value="coinbase" selected>Coinbase Advanced Trade (CDP)</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Execution Mode</label>
+            <input type="hidden" id="exIsPaper" value="0">
+            <div class="input" style="color: #10b981; font-weight: 600; display: flex; align-items: center; gap: 6px;">
+              <span class="pulse-dot"></span> LIVE Real API Execution
+            </div>
+          </div>
+        </div>
+
+        <div id="liveApiCredentials" style="display: block;">
+          <div class="form-group">
+            <label>Coinbase API Key Name</label>
+            <input type="text" id="exApiKey" class="input" placeholder="organizations/{org_id}/apiKeys/{key_id}" required>
+          </div>
+          <div class="form-group">
+            <label>Coinbase Private Key Secret (PEM / EC Private Key)</label>
+            <textarea id="exApiSecret" class="input" rows="4" placeholder="-----BEGIN EC PRIVATE KEY-----&#10;...&#10;-----END EC PRIVATE KEY-----" required style="font-family: monospace; font-size: 0.8rem; resize: vertical;"></textarea>
+          </div>
+          <p class="form-note">🔒 Credentials are encrypted at rest via AES-256-GCM. We recommend View + Trade only permissions with IP whitelisting.</p>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-close="modalAddExchange">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Admin Authentication -->
+  <div id="modalLogin" class="modal-backdrop" style="display: none; z-index: 9999; backdrop-filter: blur(8px);">
+    <div class="modal-card" style="max-width: 420px;">
+      <div class="modal-header">
+        <h3>⚡ Coinbase Crypto Bot Login</h3>
+      </div>
+      <form id="formLogin" class="modal-body">
+        <p class="form-note" style="margin-bottom: 16px;">
+          Authenticate with your administrative credentials to manage trading bots and portfolio funds.
+        </p>
+        <div id="loginError" style="display: none; padding: 10px; margin-bottom: 14px; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; border-radius: 6px; color: #f87171; font-size: 0.85rem;"></div>
+        <div class="form-group">
+          <label>Admin Username</label>
+          <input type="text" id="loginUsername" class="input" placeholder="admin" required autofocus>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" id="loginPassword" class="input" placeholder="••••••••••••" required>
+        </div>
+        <div class="modal-footer" style="padding-top: 10px;">
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In to Terminal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js?v=20261116_v1"></script>
+</body>
+</html>

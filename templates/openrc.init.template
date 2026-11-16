@@ -1,0 +1,29 @@
+#!/sbin/openrc-run
+# ==============================================================================
+# Coinbase Crypto Bot - OpenRC Service Script
+# ==============================================================================
+
+name="coinbase-crypto-bot"
+description="Coinbase Crypto Bot Daemon"
+
+: ${CB_USER:="__SERVICE_USER__"}
+: ${CB_DIR:="__INSTALL_DIR__"}
+: ${CB_NODE:="__NODE_BIN__"}
+
+command="$CB_NODE"
+command_args="dist/index.js"
+command_background="yes"
+directory="$CB_DIR"
+command_user="$CB_USER"
+pidfile="$CB_DIR/data/bot.pid"
+output_log="$CB_DIR/data/app.log"
+error_log="$CB_DIR/data/app.log"
+
+depend() {
+    need net
+    after firewall
+}
+
+start_pre() {
+    checkpath -d -m 0755 -o "$CB_USER" "$CB_DIR/data"
+}

@@ -1,0 +1,25 @@
+[Unit]
+Description=Coinbase Crypto Bot - Automated Trading Operations Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=__SERVICE_USER__
+WorkingDirectory=__INSTALL_DIR__
+ExecStart=__NODE_BIN__ __INSTALL_DIR__/dist/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=coinbase-crypto-bot
+
+# Security Sandbox
+ProtectSystem=full
+ProtectHome=read-only
+NoNewPrivileges=true
+
+Environment=NODE_ENV=production
+Environment=ENV_FILE=__INSTALL_DIR__/.env
+
+[Install]
+WantedBy=multi-user.target

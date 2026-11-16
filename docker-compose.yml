@@ -1,0 +1,19 @@
+services:
+  coinbase-crypto-bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: coinbase-crypto-bot
+    restart: unless-stopped
+    ports:
+      - "29600:29600"
+    environment:
+      - PORT=29600
+      - HOST=0.0.0.0
+      - FQDN=localhost
+      - BASE_PATH=/
+      - DATA_DIR=/app/data
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
