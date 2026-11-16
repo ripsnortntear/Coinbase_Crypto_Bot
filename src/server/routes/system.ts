@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { getDatabase } from "../../db/database";
 import { BotRunner } from "../../engine/bot-runner";
 import { ExchangeManager } from "../../engine/exchange-manager";
+import { RegimeGuard } from "../../engine/regime-guard";
 
 export function createSystemRouter(botRunner: BotRunner, exchangeManager: ExchangeManager): Router {
   const router = Router();
@@ -21,6 +22,52 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
       });
     } catch (err: any) {
       res.status(500).json({ ok: false, status: "degraded", error: err.message });
+    }
+  });
+
+  // System Status details (PID, memory, node, uptime)
+  router.get("/status", (req: Request, res: Response) => {
+    try {
+      const mem = process.memoryUsage();
+      const activeBotsCount = db.prepare("SELECT COUNT(*) as count FROM trading_bots WHERE status = 'active'").get() as { count: number };
+      const totalBotsCount = db.prepare("SELECT COUNT(*) as count FROM trading_bots").get() as { count: number };
+
+      res.json({
+        ok: true,
+        data: {
+          pid: process.pid,
+          uptime: process.uptime(),
+          nodeVersion: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          memory: {
+            rssMb: Number((mem.rss / 1024 / 1024).toFixed(1)),
+            heapTotalMb: Number((mem.heapTotal / 1024 / 1024).toFixed(1)),
+            heapUsedMb: Number((mem.heapUsed / 1024 / 1024).toFixed(1)),
+          },
+          activeBots: activeBotsCount.count,
+          totalBots: totalBotsCount.count,
+          timestamp: new Date().toISOString(),
+        },
+      });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Graceful Restart Trigger
+  router.post("/restart", (req: Request, res: Response) => {
+    try {
+      db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Service restart requested by administrator via dashboard', ?)").run(new Date().toISOString());
+      res.json({ ok: true, message: "Engine service restart initiated. Restarting in 1 second..." });
+
+      // Exit process gracefully after sending HTTP response; systemd Restart=always will immediately restart the daemon
+      setTimeout(() => {
+        console.log("[System] Graceful service restart initiated by administrator.");
+        process.exit(0);
+      }, 800);
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
     }
   });
 
@@ -63,6 +110,9 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
         }
       }
 
+      const regime = RegimeGuard.getInstance()?.getSnapshot() || null;
+      const circuitBreaker = botRunner.checkDailyDrawdownCircuitBreaker();
+
       res.json({
         ok: true,
         data: {
@@ -75,6 +125,8 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
           panicActive: panicSetting?.value === "true",
           livePortfolio,
           paperBalances: {},
+          regime,
+          circuitBreaker,
         },
       });
     } catch (err: any) {
@@ -130,6 +182,55 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
       exchangeManager.getPaperEngine().resetBalances();
       db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Paper trading balances reset to defaults ($25,000 USDT, $10,000 USD)', ?)").run(new Date().toISOString());
       res.json({ ok: true, message: "Paper balances reset to default portfolio" });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Market Regime Guard & Risk Settings
+  router.get("/regime", (req: Request, res: Response) => {
+    try {
+      const guard = RegimeGuard.getInstance();
+      const regime = guard ? guard.getSnapshot() : null;
+      const circuitBreaker = botRunner.checkDailyDrawdownCircuitBreaker();
+      const rows = db.prepare("SELECT key, value FROM system_settings").all() as { key: string; value: string }[];
+      const settings: Record<string, string> = {};
+      for (const r of rows) settings[r.key] = r.value;
+      res.json({ ok: true, data: { regime, circuitBreaker, settings } });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.post("/regime/refresh", async (req: Request, res: Response) => {
+    try {
+      const guard = RegimeGuard.getInstance();
+      if (!guard) return res.status(503).json({ ok: false, error: "RegimeGuard not initialized" });
+      const snapshot = await guard.refresh();
+      res.json({ ok: true, data: snapshot });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  router.post("/settings", (req: Request, res: Response) => {
+    try {
+      const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped } = req.body || {};
+      const upsert = db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)");
+      if (regime_guard_enabled !== undefined) {
+        upsert.run("regime_guard_enabled", String(Boolean(regime_guard_enabled)));
+      }
+      if (maker_first_enabled !== undefined) {
+        upsert.run("maker_first_enabled", String(Boolean(maker_first_enabled)));
+      }
+      if (max_daily_loss_usd !== undefined && Number(max_daily_loss_usd) > 0) {
+        upsert.run("max_daily_loss_usd", String(Number(max_daily_loss_usd)));
+      }
+      if (circuit_breaker_tripped !== undefined) {
+        upsert.run("circuit_breaker_tripped", String(Boolean(circuit_breaker_tripped)));
+      }
+      db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Risk & execution settings updated by administrator', ?)").run(new Date().toISOString());
+      res.json({ ok: true, message: "Settings updated" });
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
     }

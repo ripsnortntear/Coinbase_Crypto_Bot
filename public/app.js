@@ -445,6 +445,14 @@
           panicBtn.className = "btn btn-danger";
         }
       }
+
+      // Live Fear & Greed + Regime Guard HUD update
+      const fngEl = document.getElementById("m-fng");
+      if (fngEl && d.regime) {
+        const r = d.regime;
+        fngEl.textContent = `${r.fngValue} [${r.fngLabel.toUpperCase()} • ${r.regime}]`;
+        fngEl.className = r.regime === "CRASH_RISK" ? "text-red" : r.regime === "CAUTION" ? "text-amber" : "text-emerald";
+      }
     } catch (err) {}
   }
 
@@ -1070,6 +1078,10 @@
     });
 
     // Modals
+    document.getElementById("btnBacktest")?.addEventListener("click", () => openModal("modalBacktest"));
+    document.getElementById("btnRunBacktest")?.addEventListener("click", runBacktest);
+    document.getElementById("btnSaveRiskSettings")?.addEventListener("click", saveRiskSettings);
+    document.getElementById("btnSystemStatus")?.addEventListener("click", openSystemStatusModal);
     document.getElementById("btnNewBot")?.addEventListener("click", () => {
       openModal("modalDeployBot");
       const liveUsd = state.overview?.livePortfolio?.totalUsd;
@@ -1120,11 +1132,13 @@
         const safetyOrderAmount = Math.max(1.25, Number((cap * 0.20).toFixed(2)));
         const rawTp = parseFloat(document.getElementById("dcaTp").value || "2.5");
         const rawDrop = parseFloat(document.getElementById("dcaDrop").value || "1.8");
+        const rawTrailTp = parseFloat(document.getElementById("dcaTrailTp")?.value || "0");
         config = {
           baseOrderAmount,
           safetyOrderAmount,
           priceDropPercentage: Math.max(1.2, rawDrop),
           takeProfitPercentage: Math.max(2.0, rawTp),
+          trailingTakeProfitPercentage: rawTrailTp > 0 ? rawTrailTp : undefined,
           maxSafetyOrders: 5,
         };
       } else if (strategy_type === "momentum_rsi") {
@@ -1623,6 +1637,143 @@
       alert("Network error updating bot");
     }
   });
+
+  async function openSystemStatusModal() {
+    openModal("modalSystemStatus");
+    try {
+      const res = await fetch(`${API_BASE}/api/system/status`);
+      const json = await res.json();
+      if (json.ok && json.data) {
+        const d = json.data;
+        const pidEl = document.getElementById("sysStatPid");
+        if (pidEl) pidEl.textContent = d.pid;
+        const uptimeEl = document.getElementById("sysStatUptime");
+        if (uptimeEl) uptimeEl.textContent = `${Math.floor(d.uptime / 60)}m ${Math.floor(d.uptime % 60)}s`;
+        const memEl = document.getElementById("sysStatMemory");
+        if (memEl) memEl.textContent = `${d.memory.rssMb} MB (Heap: ${d.memory.heapUsedMb} MB / ${d.memory.heapTotalMb} MB)`;
+        const nodeEl = document.getElementById("sysStatNode");
+        if (nodeEl) nodeEl.textContent = `${d.nodeVersion} (${d.platform} ${d.arch})`;
+        const botsEl = document.getElementById("sysStatBots");
+        if (botsEl) botsEl.textContent = `${d.activeBots} Active / ${d.totalBots} Total`;
+      }
+
+      const regRes = await fetch(`${API_BASE}/api/system/regime`);
+      const regJson = await regRes.json();
+      if (regJson.ok && regJson.data) {
+        const { regime, circuitBreaker, settings } = regJson.data;
+        const chkRegime = document.getElementById("chkRegimeGuard");
+        const chkMaker = document.getElementById("chkMakerFirst");
+        const inpLoss = document.getElementById("inpMaxDailyLoss");
+        const lblRegime = document.getElementById("lblRegimeState");
+        const lblCb = document.getElementById("sysStatCircuitBreaker");
+
+        if (chkRegime) chkRegime.checked = settings.regime_guard_enabled !== "false";
+        if (chkMaker) chkMaker.checked = settings.maker_first_enabled !== "false";
+        if (inpLoss && settings.max_daily_loss_usd) inpLoss.value = settings.max_daily_loss_usd;
+        if (lblRegime && regime) {
+          lblRegime.textContent = `${regime.regime} (F&G ${regime.fngValue})`;
+          lblRegime.style.color = regime.regime === "CRASH_RISK" ? "#ef4444" : regime.regime === "CAUTION" ? "#facc15" : "#10b981";
+        }
+        if (lblCb && circuitBreaker) {
+          lblCb.textContent = circuitBreaker.tripped
+            ? `TRIPPED ($${circuitBreaker.dailyPnl.toFixed(2)})`
+            : `ARMED ($${circuitBreaker.dailyPnl.toFixed(2)})`;
+          lblCb.style.color = circuitBreaker.tripped ? "#ef4444" : "#10b981";
+        }
+      }
+    } catch (e) {
+      console.error("Failed fetching system status:", e);
+    }
+  }
+
+  async function saveRiskSettings() {
+    const regime_guard_enabled = Boolean(document.getElementById("chkRegimeGuard")?.checked);
+    const maker_first_enabled = Boolean(document.getElementById("chkMakerFirst")?.checked);
+    const max_daily_loss_usd = Number(document.getElementById("inpMaxDailyLoss")?.value || 1000);
+    try {
+      const res = await fetch(`${API_BASE}/api/system/settings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          regime_guard_enabled,
+          maker_first_enabled,
+          max_daily_loss_usd,
+          circuit_breaker_tripped: false,
+        }),
+      });
+      const json = await res.json();
+      if (json.ok) {
+        alert("Risk & execution settings saved!");
+        openSystemStatusModal();
+      } else {
+        alert("Failed saving settings: " + json.error);
+      }
+    } catch (err) {
+      alert("Error saving settings: " + err.message);
+    }
+  }
+
+  async function runBacktest() {
+    const btn = document.getElementById("btnRunBacktest");
+    const box = document.getElementById("btResultsBox");
+    const grid = document.getElementById("btMetricsGrid");
+    const list = document.getElementById("btTradesList");
+    if (!btn || !box || !grid || !list) return;
+
+    btn.disabled = true;
+    btn.textContent = "⏳ Simulating...";
+
+    try {
+      const payload = {
+        symbol: document.getElementById("btSymbol").value,
+        strategy_type: document.getElementById("btStrategy").value,
+        timeframe: document.getElementById("btTimeframe").value,
+        candle_limit: Number(document.getElementById("btCandles").value || 300),
+        initial_capital: Number(document.getElementById("btCapital").value || 1000),
+        execution_mode: document.getElementById("btExecMode").value,
+        config: {
+          takeProfitPercentage: Math.max(2.0, Number(document.getElementById("btTp").value || 2.5)),
+          trailingTakeProfitPercentage: Number(document.getElementById("btTrailTp").value || 0),
+        },
+      };
+
+      const res = await fetch(`${API_BASE}/api/bots/backtest`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Backtest failed");
+
+      const m = json.data.metrics;
+      const retColor = m.netPnl >= 0 ? "#10b981" : "#ef4444";
+      grid.innerHTML = `
+        <div><div style="color:#94a3b8;font-size:0.75rem;">Net PnL</div><div style="color:${retColor};font-weight:700;font-size:1.05rem;">${m.netPnl >= 0 ? "+" : ""}$${m.netPnl} (${m.totalReturnPct}%)</div></div>
+        <div><div style="color:#94a3b8;font-size:0.75rem;">Win Rate</div><div style="color:#f1f5f9;font-weight:700;font-size:1.05rem;">${m.winRate}% (${m.winningTrades}/${m.totalTrades})</div></div>
+        <div><div style="color:#94a3b8;font-size:0.75rem;">Max Drawdown</div><div style="color:#facc15;font-weight:700;font-size:1.05rem;">-${m.maxDrawdownPct}%</div></div>
+        <div><div style="color:#94a3b8;font-size:0.75rem;">Sharpe / Fees</div><div style="color:#38bdf8;font-weight:700;font-size:1.05rem;">${m.sharpeRatio} / -$${m.totalFees}</div></div>
+      `;
+
+      const tradesHtml = json.data.trades.map((t) => {
+        const dt = new Date(t.timestamp).toLocaleString();
+        const sideCol = t.side === "buy" ? "#38bdf8" : t.realizedPnl >= 0 ? "#10b981" : "#ef4444";
+        const pnlStr = t.side === "sell" ? ` | PnL: ${t.realizedPnl >= 0 ? "+" : ""}$${t.realizedPnl.toFixed(2)}` : "";
+        return `<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
+          <span style="color:#64748b;">[${dt}]</span>
+          <strong style="color:${sideCol};">${t.side.toUpperCase()}</strong>
+          $${t.price.toFixed(2)} (${t.reason})${pnlStr}
+        </div>`;
+      }).join("");
+
+      list.innerHTML = tradesHtml || `<div style="color:#94a3b8;">No closed trades in this window (${m.candlesAnalyzed} candles analyzed).</div>`;
+      box.style.display = "block";
+    } catch (err) {
+      alert("Backtest error: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "▶ Run Backtest";
+    }
+  }
 
   function openModal(id) {
     const el = document.getElementById(id);

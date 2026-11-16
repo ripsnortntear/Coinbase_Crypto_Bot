@@ -48,6 +48,12 @@
         <button id="btnNewBot" class="btn btn-primary">
           <span>+</span> Deploy Bot
         </button>
+        <button id="btnBacktest" class="btn btn-secondary" style="border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="Run Historical Strategy Backtest">
+          <span>🧪</span> Backtest
+        </button>
+        <button id="btnSystemStatus" class="btn btn-secondary" title="View Process Uptime, Memory, Regime Guard & Risk Controls">
+          <span>📊</span> Status
+        </button>
         <button id="btnPanic" class="btn btn-danger" title="Emergency Stop All Bots & Cancel All Orders">
           <span>🚨</span> PANIC STOP
         </button>
@@ -615,6 +621,15 @@
               <input type="number" step="any" id="dcaSafety" class="input" value="4.48" readonly style="cursor: not-allowed; opacity: 0.85; background: rgba(255,255,255,0.05);">
             </div>
           </div>
+          <div class="form-row" style="margin-top: 8px;">
+            <div class="form-col">
+              <label>Trailing Take-Profit (%) <span class="badge-tag purple" style="font-size: 0.65rem; padding: 1px 5px; margin-left: 6px;">OPTIONAL</span></label>
+              <input type="number" step="0.05" min="0" max="5" id="dcaTrailTp" class="input" value="0.35">
+              <span style="display: block; font-size: 0.72rem; color: #94a3b8; margin-top: 3px;">
+                🎯 Rides breakouts past TP target; sells on pullback (0 = disabled).
+              </span>
+            </div>
+          </div>
           <p class="form-note" style="margin-top: 6px; font-size: 0.75rem; color: #94a3b8;">
             🔒 <strong>Auto-Capital Sizing:</strong> Base (25%) and safety (20%) order amounts are dynamically scaled from your capital to eliminate balance errors.
           </p>
@@ -824,6 +839,140 @@
           <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In to Terminal</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: System Health, Regime Guard & Risk Controls -->
+  <div id="modalSystemStatus" class="modal-backdrop" style="display: none; z-index: 9998;">
+    <div class="modal-card" style="max-width: 480px;">
+      <div class="modal-header">
+        <h3>📊 Engine Status &amp; Risk Guards</h3>
+        <button class="modal-close" data-close="modalSystemStatus">&times;</button>
+      </div>
+      <div class="modal-body" id="systemStatusBody" style="font-size: 0.9rem; padding: 16px 20px;">
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Process PID:</span>
+          <span id="sysStatPid" style="font-family: monospace; color: #38bdf8;">--</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Service Uptime:</span>
+          <span id="sysStatUptime" style="color: #f1f5f9; font-weight: 500;">--</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Memory Usage (RSS):</span>
+          <span id="sysStatMemory" style="color: #f1f5f9; font-weight: 500;">--</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Node.js Engine:</span>
+          <span id="sysStatNode" style="font-family: monospace; color: #94a3b8;">--</span>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Active Bots / Total:</span>
+          <span id="sysStatBots" style="color: #f1f5f9; font-weight: 500;">--</span>
+        </div>
+        <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12);">
+          <div style="font-weight: 600; color: #38bdf8; margin-bottom: 8px;">🛡️ Risk Guards &amp; Execution</div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Market Regime Guard (F&amp;G + BTC Vol):</span>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+              <input type="checkbox" id="chkRegimeGuard" checked> <span id="lblRegimeState" style="font-size: 0.8rem; color: #10b981;">NEUTRAL</span>
+            </label>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Maker-First Post-Only Orders:</span>
+            <input type="checkbox" id="chkMakerFirst" checked>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Max Daily Loss Circuit Breaker ($):</span>
+            <input type="number" id="inpMaxDailyLoss" class="input" value="1000" min="10" step="10" style="width: 110px; padding: 4px 8px;">
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #94a3b8;">24h Realized PnL / Breaker:</span>
+            <span id="sysStatCircuitBreaker" style="font-weight: 600; color: #10b981;">ARMED ($0.00)</span>
+          </div>
+          <button type="button" id="btnSaveRiskSettings" class="btn btn-primary" style="width: 100%; margin-top: 8px; padding: 7px;">Save Risk Settings</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close="modalSystemStatus">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Historical Backtest Simulator -->
+  <div id="modalBacktest" class="modal-backdrop" style="display: none; z-index: 9998;">
+    <div class="modal-card" style="max-width: 680px; width: 95%;">
+      <div class="modal-header">
+        <h3>🧪 Historical Strategy Backtester</h3>
+        <button class="modal-close" data-close="modalBacktest">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px; max-height: 75vh; overflow-y: auto;">
+        <div class="form-row">
+          <div class="form-col">
+            <label>Trading Pair</label>
+            <select id="btSymbol" class="input">
+              <option value="BTC/USD">BTC/USD</option>
+              <option value="ETH/USD" selected>ETH/USD</option>
+              <option value="SOL/USD">SOL/USD</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Strategy</label>
+            <select id="btStrategy" class="input">
+              <option value="dca" selected>DCA + Trailing TP</option>
+              <option value="bollinger">Bollinger Bands</option>
+              <option value="momentum_rsi">Momentum RSI</option>
+              <option value="grid">Grid Trading</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Timeframe</label>
+            <select id="btTimeframe" class="input">
+              <option value="15m">15m</option>
+              <option value="1h" selected>1h</option>
+              <option value="4h">4h</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 10px;">
+          <div class="form-col">
+            <label>Candles (History)</label>
+            <input type="number" id="btCandles" class="input" value="300" min="60" max="720">
+          </div>
+          <div class="form-col">
+            <label>Initial Capital ($)</label>
+            <input type="number" id="btCapital" class="input" value="1000" min="50">
+          </div>
+          <div class="form-col">
+            <label>Execution Mode</label>
+            <select id="btExecMode" class="input">
+              <option value="maker" selected>Maker-First (0.40% fee)</option>
+              <option value="taker">Taker Market (0.90% fee)</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row" style="margin-top: 10px;">
+          <div class="form-col">
+            <label>Take Profit (% min 2.0%)</label>
+            <input type="number" id="btTp" class="input" value="2.5" min="2.0" step="0.1">
+          </div>
+          <div class="form-col">
+            <label>Trailing TP Pullback (%)</label>
+            <input type="number" id="btTrailTp" class="input" value="0.35" min="0" step="0.05">
+          </div>
+          <div class="form-col" style="display: flex; align-items: flex-end;">
+            <button type="button" id="btnRunBacktest" class="btn btn-primary" style="width: 100%;">▶ Run Backtest</button>
+          </div>
+        </div>
+
+        <div id="btResultsBox" style="display: none; margin-top: 16px; padding: 14px; background: rgba(15,23,42,0.8); border: 1px solid rgba(56,189,248,0.25); border-radius: 8px;">
+          <div id="btMetricsGrid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center; margin-bottom: 12px;"></div>
+          <div id="btTradesList" style="max-height: 180px; overflow-y: auto; font-size: 0.8rem; font-family: monospace; color: #cbd5e1; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 8px;"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-close="modalBacktest">Close</button>
+      </div>
     </div>
   </div>
 

@@ -51,11 +51,16 @@ class BollingerStrategy extends base_strategy_1.BaseStrategy {
         const lastPrice = closePrices[closePrices.length - 1];
         // BUY Signal: Price touches or drops below lower band (oversold mean-reversion)
         if (!this.inPosition && lastPrice <= currentBB.lower) {
+            const guard = this.canEnterBuy();
+            if (!guard.allowed) {
+                this.log("warn", `🛡️ Bollinger BUY paused by Guard: ${guard.reason}`);
+                return;
+            }
             this.log("info", `Bollinger BUY Signal: Price $${lastPrice} <= Lower Band $${currentBB.lower.toFixed(2)}`);
             const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
             if (amount > 0) {
                 try {
-                    await this.placeOrder("buy", "market", lastPrice, amount);
+                    await this.placeOrder("buy", "market", lastPrice, amount, true);
                     this.inPosition = true;
                     this.entryPrice = lastPrice;
                 }

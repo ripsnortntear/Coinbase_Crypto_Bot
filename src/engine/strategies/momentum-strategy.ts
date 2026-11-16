@@ -61,11 +61,16 @@ export class MomentumStrategy extends BaseStrategy {
 
     // BUY Signal: RSI dips below oversold and starts turning up
     if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi) {
+      const guard = this.canEnterBuy();
+      if (!guard.allowed) {
+        this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
+        return;
+      }
       this.log("info", `BUY Signal: RSI oversold rebound (${prevRsi.toFixed(1)} -> ${currentRsi.toFixed(1)}) at $${lastPrice}`);
       const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
       if (amount > 0) {
         try {
-          await this.placeOrder("buy", "market", lastPrice, amount);
+          await this.placeOrder("buy", "market", lastPrice, amount, true);
           this.inPosition = true;
           this.entryPrice = lastPrice;
         } catch (err: any) {

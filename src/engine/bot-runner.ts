@@ -8,6 +8,7 @@ import { GridStrategy } from "./strategies/grid-strategy";
 import { DcaStrategy } from "./strategies/dca-strategy";
 import { MomentumStrategy } from "./strategies/momentum-strategy";
 import { BollingerStrategy } from "./strategies/bollinger-strategy";
+import { RegimeGuard } from "./regime-guard";
 
 export class BotRunner extends EventEmitter {
   private db = getDatabase();
@@ -22,6 +23,10 @@ export class BotRunner extends EventEmitter {
   constructor(exchangeManager: ExchangeManager) {
     super();
     this.exchangeManager = exchangeManager;
+  }
+
+  public getExchangeManager(): ExchangeManager {
+    return this.exchangeManager;
   }
 
   public async start(): Promise<void> {
@@ -45,6 +50,9 @@ export class BotRunner extends EventEmitter {
     // Initial immediate reconciliation
     setTimeout(() => this.reconcileLiveOrders(), 2000);
 
+    // Start Market Regime Guard (Fear & Greed + BTC Volatility)
+    RegimeGuard.init(this.exchangeManager).start();
+
     console.log(`[BotRunner] Trading engine active with ${this.activeStrategies.size} running bots.`);
   }
 
@@ -53,6 +61,7 @@ export class BotRunner extends EventEmitter {
     if (this.loopInterval) clearInterval(this.loopInterval);
     if (this.candleInterval) clearInterval(this.candleInterval);
     if (this.reconcileInterval) clearInterval(this.reconcileInterval);
+    RegimeGuard.getInstance()?.stop();
     this.activeStrategies.clear();
     console.log("[BotRunner] Trading engine stopped.");
   }
@@ -178,6 +187,7 @@ export class BotRunner extends EventEmitter {
   }
 
   private async candleLoop(): Promise<void> {
+    this.checkDailyDrawdownCircuitBreaker();
     for (const symbol of this.activeSymbols) {
       try {
         const candles = await this.exchangeManager.fetchOHLCV(symbol, "5m", 50);
@@ -188,6 +198,40 @@ export class BotRunner extends EventEmitter {
           }
         }
       } catch (err: any) {}
+    }
+  }
+
+  public checkDailyDrawdownCircuitBreaker(): { tripped: boolean; dailyPnl: number; maxDailyLossUsd: number } {
+    try {
+      const maxLossRow = this.db.prepare("SELECT value FROM system_settings WHERE key = 'max_daily_loss_usd'").get() as { value: string } | undefined;
+      const trippedRow = this.db.prepare("SELECT value FROM system_settings WHERE key = 'circuit_breaker_tripped'").get() as { value: string } | undefined;
+      const maxDailyLossUsd = Math.abs(Number(maxLossRow?.value || 1000));
+      const alreadyTripped = trippedRow?.value === "true";
+
+      const pnlRow = this.db.prepare(`
+        SELECT COALESCE(SUM(realized_pnl), 0) as dailyPnl
+        FROM trades
+        WHERE timestamp >= datetime('now', '-24 hours')
+      `).get() as { dailyPnl: number };
+      const dailyPnl = Number((pnlRow?.dailyPnl || 0).toFixed(4));
+
+      if (maxDailyLossUsd > 0 && dailyPnl <= -maxDailyLossUsd && !alreadyTripped) {
+        this.db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('circuit_breaker_tripped', 'true')").run();
+        this.db.prepare(`
+          INSERT INTO system_logs (level, message, metadata_json, timestamp)
+          VALUES ('warn', ?, ?, ?)
+        `).run(
+          `🛑 GLOBAL CIRCUIT BREAKER TRIPPED! 24h Realized PnL ($${dailyPnl.toFixed(2)}) breached -$${maxDailyLossUsd.toFixed(2)} limit. New buys paused.`,
+          JSON.stringify({ dailyPnl, maxDailyLossUsd }),
+          new Date().toISOString()
+        );
+        this.emit("circuit_breaker", { tripped: true, dailyPnl, maxDailyLossUsd });
+        return { tripped: true, dailyPnl, maxDailyLossUsd };
+      }
+
+      return { tripped: alreadyTripped, dailyPnl, maxDailyLossUsd };
+    } catch {
+      return { tripped: false, dailyPnl: 0, maxDailyLossUsd: 1000 };
     }
   }
 

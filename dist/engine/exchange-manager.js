@@ -141,6 +141,16 @@ class ExchangeManager {
             return cached.candles;
         throw lastError || new Error(`Failed fetching OHLCV for ${symbol}`);
     }
+    isMakerFirstEnabled() {
+        try {
+            const db = (0, database_1.getDatabase)();
+            const row = db.prepare("SELECT value FROM system_settings WHERE key = 'maker_first_enabled'").get();
+            return row ? row.value !== "false" : true;
+        }
+        catch {
+            return true;
+        }
+    }
     async createOrder(account, orderParams) {
         if (account.is_paper === 1) {
             return this.paperEngine.placeOrder({
@@ -164,28 +174,73 @@ class ExchangeManager {
             }
             catch { }
         }
-        let exOrder;
-        try {
-            exOrder = await ex.createOrder(symbolToTrade, orderParams.type, orderParams.side, orderParams.amount, orderParams.price);
-        }
-        catch (orderErr) {
-            const errMsg = (orderErr.message || "").toLowerCase();
-            const isBalanceErr = errMsg.includes("insufficient") || errMsg.includes("funds") || errMsg.includes("balance");
-            if (account.exchange_id === "coinbase" && isBalanceErr) {
-                if (orderParams.side === "buy" && symbolToTrade.endsWith("/USD")) {
-                    const altSymbol = symbolToTrade.replace(/\/USD$/, "/USDC");
-                    exOrder = await ex.createOrder(altSymbol, orderParams.type, orderParams.side, orderParams.amount, orderParams.price);
+        let exOrder = null;
+        let executedType = orderParams.type;
+        // Hybrid Maker-First Execution: Attempt Post-Only limit order at top-of-book to save fees,
+        // polling briefly before falling back to Market order for guaranteed fill.
+        if (orderParams.makerFirst && orderParams.type === "market" && this.isMakerFirstEnabled()) {
+            try {
+                const freshTicker = await this.fetchTicker(symbolToTrade, account.exchange_id);
+                const makerPrice = orderParams.side === "buy" ? freshTicker.bid : freshTicker.ask;
+                if (makerPrice > 0) {
+                    const postOrder = await ex.createOrder(symbolToTrade, "limit", orderParams.side, orderParams.amount, makerPrice, { postOnly: true });
+                    // Poll up to 8 seconds (4 x 2s) for maker fill
+                    let filledMaker = null;
+                    if (postOrder?.id) {
+                        for (let attempt = 0; attempt < 4; attempt++) {
+                            await new Promise((r) => setTimeout(r, 2000));
+                            const checked = await ex.fetchOrder(String(postOrder.id), symbolToTrade);
+                            if (checked && (checked.status === "closed" || (checked.filled && checked.filled >= orderParams.amount * 0.99))) {
+                                filledMaker = checked;
+                                break;
+                            }
+                        }
+                    }
+                    if (filledMaker) {
+                        exOrder = filledMaker;
+                        executedType = "limit";
+                        console.log(`[ExchangeManager] Maker-First Post-Only FILLED for ${symbolToTrade} ${orderParams.side} @ $${makerPrice}`);
+                    }
+                    else if (postOrder?.id) {
+                        // Cancel unfilled post-only order and fall back to market
+                        try {
+                            await ex.cancelOrder(String(postOrder.id), symbolToTrade);
+                        }
+                        catch { }
+                        console.log(`[ExchangeManager] Maker-First timed out for ${symbolToTrade} ${orderParams.side}; falling back to Market.`);
+                    }
                 }
-                else if (orderParams.side === "sell") {
-                    // Live fee deduction or rounding mismatch: force-fetch live balance and clamp
-                    const baseAsset = orderParams.symbol.split("/")[0];
-                    const balances = await this.fetchBalances(account, true);
-                    const freeBase = Number(balances[baseAsset]?.free || 0);
-                    // Floor down to 5 decimals with 0.5% margin for fee buffer
-                    const clampedAmount = Math.floor(freeBase * 0.995 * 100000) / 100000;
-                    if (clampedAmount > 0 && clampedAmount * orderParams.price >= 1.0) {
-                        console.log(`[ExchangeManager] Auto-clamping sell order from ${orderParams.amount} to verified free ${clampedAmount} ${baseAsset}`);
-                        exOrder = await ex.createOrder(symbolToTrade, orderParams.type, orderParams.side, clampedAmount, orderParams.price);
+            }
+            catch (makerErr) {
+                console.log(`[ExchangeManager] Maker-First fallback to Market (${makerErr.message})`);
+            }
+        }
+        if (!exOrder) {
+            try {
+                exOrder = await ex.createOrder(symbolToTrade, orderParams.type, orderParams.side, orderParams.amount, orderParams.price);
+            }
+            catch (orderErr) {
+                const errMsg = (orderErr.message || "").toLowerCase();
+                const isBalanceErr = errMsg.includes("insufficient") || errMsg.includes("funds") || errMsg.includes("balance");
+                if (account.exchange_id === "coinbase" && isBalanceErr) {
+                    if (orderParams.side === "buy" && symbolToTrade.endsWith("/USD")) {
+                        const altSymbol = symbolToTrade.replace(/\/USD$/, "/USDC");
+                        exOrder = await ex.createOrder(altSymbol, orderParams.type, orderParams.side, orderParams.amount, orderParams.price);
+                    }
+                    else if (orderParams.side === "sell") {
+                        // Live fee deduction or rounding mismatch: force-fetch live balance and clamp
+                        const baseAsset = orderParams.symbol.split("/")[0];
+                        const balances = await this.fetchBalances(account, true);
+                        const freeBase = Number(balances[baseAsset]?.free || 0);
+                        // Floor down to 5 decimals with 0.5% margin for fee buffer
+                        const clampedAmount = Math.floor(freeBase * 0.995 * 100000) / 100000;
+                        if (clampedAmount > 0 && clampedAmount * orderParams.price >= 1.0) {
+                            console.log(`[ExchangeManager] Auto-clamping sell order from ${orderParams.amount} to verified free ${clampedAmount} ${baseAsset}`);
+                            exOrder = await ex.createOrder(symbolToTrade, orderParams.type, orderParams.side, clampedAmount, orderParams.price);
+                        }
+                        else {
+                            throw orderErr;
+                        }
                     }
                     else {
                         throw orderErr;
@@ -195,21 +250,19 @@ class ExchangeManager {
                     throw orderErr;
                 }
             }
-            else {
-                throw orderErr;
-            }
         }
         const db = (0, database_1.getDatabase)();
         const orderId = `live-ord-${crypto.randomUUID()}`;
         const now = new Date().toISOString();
-        const filled = exOrder.filled !== undefined ? exOrder.filled : (orderParams.type === "market" ? orderParams.amount : 0);
+        const filled = exOrder.filled !== undefined ? exOrder.filled : (executedType === "market" ? orderParams.amount : 0);
         const avgPrice = exOrder.average || exOrder.price || orderParams.price;
         const cost = exOrder.cost || (filled * avgPrice);
-        // Coinbase Tier 1 taker fee is 0.90% (verified live from Coinbase API orders)
+        // Coinbase Tier 1 fee: ~0.40% maker (limit post-only) vs 0.90% taker (market)
+        const fallbackFeeRate = executedType === "limit" ? 0.004 : 0.009;
         const fee = (exOrder.fee && exOrder.fee.cost)
             ? Number(exOrder.fee.cost)
-            : Number((cost * 0.009).toFixed(4));
-        const status = exOrder.status || (orderParams.type === "market" ? "filled" : "open");
+            : Number((cost * fallbackFeeRate).toFixed(4));
+        const status = exOrder.status || (executedType === "market" ? "filled" : "open");
         const order = {
             id: orderId,
             bot_id: orderParams.bot_id,
@@ -217,7 +270,7 @@ class ExchangeManager {
             exchange_order_id: String(exOrder.id || `cb-${Date.now()}`),
             symbol: orderParams.symbol,
             side: orderParams.side,
-            type: orderParams.type,
+            type: executedType,
             price: avgPrice,
             amount: exOrder.amount || orderParams.amount,
             filled_amount: filled,

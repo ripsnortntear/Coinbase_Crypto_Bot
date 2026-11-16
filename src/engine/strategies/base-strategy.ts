@@ -1,6 +1,7 @@
 import { TradingBot, TickerData, Candle, Order, ExchangeAccount } from "../types";
 import { ExchangeManager } from "../exchange-manager";
 import { getDatabase } from "../../db/database";
+import { RegimeGuard } from "../regime-guard";
 
 export abstract class BaseStrategy {
   protected bot: TradingBot;
@@ -36,11 +37,34 @@ export abstract class BaseStrategy {
     `).all(this.bot.id) as unknown as Order[];
   }
 
+  protected canEnterBuy(): { allowed: boolean; reason?: string } {
+    try {
+      const cb = this.db.prepare("SELECT value FROM system_settings WHERE key = 'circuit_breaker_tripped'").get() as { value: string } | undefined;
+      if (cb && cb.value === "true") {
+        return { allowed: false, reason: "Global Daily Drawdown Circuit Breaker is TRIPPED" };
+      }
+      const panic = this.db.prepare("SELECT value FROM system_settings WHERE key = 'panic_active'").get() as { value: string } | undefined;
+      if (panic && panic.value === "true") {
+        return { allowed: false, reason: "Emergency Panic Stop is ACTIVE" };
+      }
+    } catch {}
+
+    const guard = RegimeGuard.getInstance();
+    if (guard) {
+      const res = guard.canOpenNewPosition();
+      if (!res.allowed) {
+        return { allowed: false, reason: res.reason };
+      }
+    }
+    return { allowed: true };
+  }
+
   protected async placeOrder(
     side: "buy" | "sell",
     type: "limit" | "market",
     price: number,
-    amount: number
+    amount: number,
+    makerFirst = false
   ): Promise<Order> {
     const order = await this.exchangeManager.createOrder(this.account, {
       bot_id: this.bot.id,
@@ -49,12 +73,13 @@ export abstract class BaseStrategy {
       type,
       price,
       amount,
+      makerFirst,
     });
 
-    this.log("trade", `Placed ${side.toUpperCase()} ${type.toUpperCase()} order: ${amount} ${this.bot.symbol} @ $${price.toFixed(2)}`, {
+    this.log("trade", `Placed ${side.toUpperCase()} ${order.type.toUpperCase()} order: ${amount} ${this.bot.symbol} @ $${price.toFixed(2)}`, {
       orderId: order.id,
       side,
-      type,
+      type: order.type,
       price,
       amount,
     });

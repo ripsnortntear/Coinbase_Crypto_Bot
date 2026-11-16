@@ -167,6 +167,16 @@ export class ExchangeManager {
     throw lastError || new Error(`Failed fetching OHLCV for ${symbol}`);
   }
 
+  public isMakerFirstEnabled(): boolean {
+    try {
+      const db = getDatabase();
+      const row = db.prepare("SELECT value FROM system_settings WHERE key = 'maker_first_enabled'").get() as { value: string } | undefined;
+      return row ? row.value !== "false" : true;
+    } catch {
+      return true;
+    }
+  }
+
   public async createOrder(
     account: ExchangeAccount,
     orderParams: {
@@ -176,6 +186,7 @@ export class ExchangeManager {
       type: "limit" | "market";
       price: number;
       amount: number;
+      makerFirst?: boolean;
     }
   ): Promise<Order> {
     if (account.is_paper === 1) {
@@ -201,15 +212,64 @@ export class ExchangeManager {
       } catch {}
     }
 
-    let exOrder: any;
-    try {
-      exOrder = await ex.createOrder(
-        symbolToTrade,
-        orderParams.type,
-        orderParams.side,
-        orderParams.amount,
-        orderParams.price
-      );
+    let exOrder: any = null;
+    let executedType: "limit" | "market" = orderParams.type;
+
+    // Hybrid Maker-First Execution: Attempt Post-Only limit order at top-of-book to save fees,
+    // polling briefly before falling back to Market order for guaranteed fill.
+    if (orderParams.makerFirst && orderParams.type === "market" && this.isMakerFirstEnabled()) {
+      try {
+        const freshTicker = await this.fetchTicker(symbolToTrade, account.exchange_id);
+        const makerPrice = orderParams.side === "buy" ? freshTicker.bid : freshTicker.ask;
+        if (makerPrice > 0) {
+          const postOrder = await ex.createOrder(
+            symbolToTrade,
+            "limit",
+            orderParams.side,
+            orderParams.amount,
+            makerPrice,
+            { postOnly: true }
+          );
+
+          // Poll up to 8 seconds (4 x 2s) for maker fill
+          let filledMaker: any = null;
+          if (postOrder?.id) {
+            for (let attempt = 0; attempt < 4; attempt++) {
+              await new Promise((r) => setTimeout(r, 2000));
+              const checked = await ex.fetchOrder(String(postOrder.id), symbolToTrade);
+              if (checked && (checked.status === "closed" || (checked.filled && checked.filled >= orderParams.amount * 0.99))) {
+                filledMaker = checked;
+                break;
+              }
+            }
+          }
+
+          if (filledMaker) {
+            exOrder = filledMaker;
+            executedType = "limit";
+            console.log(`[ExchangeManager] Maker-First Post-Only FILLED for ${symbolToTrade} ${orderParams.side} @ $${makerPrice}`);
+          } else if (postOrder?.id) {
+            // Cancel unfilled post-only order and fall back to market
+            try {
+              await ex.cancelOrder(String(postOrder.id), symbolToTrade);
+            } catch {}
+            console.log(`[ExchangeManager] Maker-First timed out for ${symbolToTrade} ${orderParams.side}; falling back to Market.`);
+          }
+        }
+      } catch (makerErr: any) {
+        console.log(`[ExchangeManager] Maker-First fallback to Market (${makerErr.message})`);
+      }
+    }
+
+    if (!exOrder) {
+      try {
+        exOrder = await ex.createOrder(
+          symbolToTrade,
+          orderParams.type,
+          orderParams.side,
+          orderParams.amount,
+          orderParams.price
+        );
     } catch (orderErr: any) {
       const errMsg = (orderErr.message || "").toLowerCase();
       const isBalanceErr = errMsg.includes("insufficient") || errMsg.includes("funds") || errMsg.includes("balance");
@@ -250,19 +310,21 @@ export class ExchangeManager {
         throw orderErr;
       }
     }
+    }
 
     const db = getDatabase();
     const orderId = `live-ord-${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 
-    const filled = exOrder.filled !== undefined ? exOrder.filled : (orderParams.type === "market" ? orderParams.amount : 0);
+    const filled = exOrder.filled !== undefined ? exOrder.filled : (executedType === "market" ? orderParams.amount : 0);
     const avgPrice = exOrder.average || exOrder.price || orderParams.price;
     const cost = exOrder.cost || (filled * avgPrice);
-    // Coinbase Tier 1 taker fee is 0.90% (verified live from Coinbase API orders)
+    // Coinbase Tier 1 fee: ~0.40% maker (limit post-only) vs 0.90% taker (market)
+    const fallbackFeeRate = executedType === "limit" ? 0.004 : 0.009;
     const fee = (exOrder.fee && exOrder.fee.cost)
       ? Number(exOrder.fee.cost)
-      : Number((cost * 0.009).toFixed(4));
-    const status = exOrder.status || (orderParams.type === "market" ? "filled" : "open");
+      : Number((cost * fallbackFeeRate).toFixed(4));
+    const status = exOrder.status || (executedType === "market" ? "filled" : "open");
 
     const order: Order = {
       id: orderId,
@@ -271,7 +333,7 @@ export class ExchangeManager {
       exchange_order_id: String(exOrder.id || `cb-${Date.now()}`),
       symbol: orderParams.symbol,
       side: orderParams.side,
-      type: orderParams.type,
+      type: executedType,
       price: avgPrice,
       amount: exOrder.amount || orderParams.amount,
       filled_amount: filled,

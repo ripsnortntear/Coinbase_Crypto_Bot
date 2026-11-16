@@ -7,6 +7,7 @@ exports.createBotsRouter = createBotsRouter;
 const express_1 = require("express");
 const crypto_1 = __importDefault(require("crypto"));
 const database_1 = require("../../db/database");
+const backtester_1 = require("../../engine/backtester");
 function createBotsRouter(botRunner) {
     const router = (0, express_1.Router)();
     const db = (0, database_1.getDatabase)();
@@ -151,6 +152,29 @@ function createBotsRouter(botRunner) {
         VALUES ('info', ?, ?, ?, ?)
       `).run(botId, bot.symbol, `Updated bot capital to $${newCapital.toFixed(2)}`, new Date().toISOString());
             res.json({ ok: true, message: "Bot updated successfully" });
+        }
+        catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
+    // Historical Backtest Simulator
+    router.post("/backtest", async (req, res) => {
+        try {
+            const { symbol, strategy_type, timeframe, candle_limit, initial_capital, execution_mode, config } = req.body || {};
+            if (!symbol || !strategy_type) {
+                return res.status(400).json({ ok: false, error: "symbol and strategy_type are required" });
+            }
+            const backtester = new backtester_1.Backtester(botRunner.getExchangeManager());
+            const result = await backtester.run({
+                symbol: String(symbol).toUpperCase(),
+                strategyType: strategy_type,
+                timeframe: String(timeframe || "1h"),
+                candleLimit: Number(candle_limit || 300),
+                initialCapital: Number(initial_capital || 1000),
+                executionMode: execution_mode === "taker" ? "taker" : "maker",
+                config: config || {},
+            });
+            res.json({ ok: true, data: result });
         }
         catch (err) {
             res.status(500).json({ ok: false, error: err.message });

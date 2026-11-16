@@ -10,6 +10,9 @@ export class DcaStrategy extends BaseStrategy {
   private lastBalanceCheck = 0;
   private lastTpErrorTime = 0;
   private lastSlErrorTime = 0;
+  private trailingArmed = false;
+  private peakPrice = 0;
+  private lastGuardLogTime = 0;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -91,20 +94,34 @@ export class DcaStrategy extends BaseStrategy {
     } else {
       this.safetyOrdersPlaced = 0;
       this.lastBuyPrice = 0;
+      this.trailingArmed = false;
+      this.peakPrice = 0;
     }
 
     // 2. Auto-Capital Absorption: Sync live Coinbase balance every 15s
     await this.syncLiveCapital(ticker.last, totalAmount);
 
-    // 3. Initial Entry: If no position and no open orders, place Base Order
+    // 3. Initial Entry: If no position and no open orders, check Risk & Regime Guards before placing Base Order
+    const nowTs = Date.now();
     if (totalAmount <= 0.0001 && openOrders.length === 0) {
+      const guard = this.canEnterBuy();
+      if (!guard.allowed) {
+        if (nowTs - this.lastGuardLogTime > 300000) {
+          this.lastGuardLogTime = nowTs;
+          this.log("warn", `🛡️ Entry paused by Guard: ${guard.reason}`);
+        }
+        return;
+      }
+
       const amount = Number((this.config.baseOrderAmount / ticker.last).toFixed(5));
       if (amount > 0) {
         this.isPlacingOrder = true;
         try {
-          await this.placeOrder("buy", "market", ticker.last, amount);
+          await this.placeOrder("buy", "market", ticker.last, amount, true);
           this.lastBuyPrice = ticker.last;
           this.safetyOrdersPlaced = 0;
+          this.trailingArmed = false;
+          this.peakPrice = 0;
         } catch (err: any) {
           this.log("error", `Failed placing DCA base order: ${err.message}`);
         } finally {
@@ -114,52 +131,77 @@ export class DcaStrategy extends BaseStrategy {
       return;
     }
 
-    // 4. Take Profit Check: If price >= avgEntry * (1 + takeProfitPercentage / 100)
-    const nowTs = Date.now();
-    if (
-      avgEntry > 0 &&
-      totalAmount > 0.0001 &&
-      ticker.last >= avgEntry * (1 + this.config.takeProfitPercentage / 100) &&
-      nowTs - this.lastTpErrorTime > 15000
-    ) {
-      this.isPlacingOrder = true;
-      try {
-        const baseAsset = this.bot.symbol.split("/")[0];
-        const balances = await this.exchangeManager.fetchBalances(this.account, true);
-        const freeBase = Number(balances[baseAsset]?.free || 0);
+    // 4. Take Profit Check (Supports Trailing Take-Profit when configured)
+    if (avgEntry > 0 && totalAmount > 0.0001 && nowTs - this.lastTpErrorTime > 15000) {
+      const tpTarget = avgEntry * (1 + this.config.takeProfitPercentage / 100);
+      const trailPct = this.config.trailingTakeProfitPercentage || 0;
+      let shouldTakeProfit = false;
 
-        if (freeBase < 0.00005) {
-          this.log("info", `DCA position on exchange has 0 ${baseAsset} available. Reconciling position to 0.`);
+      if (trailPct > 0) {
+        if (!this.trailingArmed && ticker.last >= tpTarget) {
+          this.trailingArmed = true;
+          this.peakPrice = ticker.last;
+          this.log("info", `🎯 Trailing Take-Profit ARMED at $${ticker.last.toFixed(2)} (Target: +${this.config.takeProfitPercentage}%, Trail: ${trailPct}%)`);
+        }
+        if (this.trailingArmed) {
+          if (ticker.last > this.peakPrice) {
+            this.peakPrice = ticker.last;
+          }
+          const trailStop = Math.max(tpTarget * 0.999, this.peakPrice * (1 - trailPct / 100));
+          if (ticker.last <= trailStop) {
+            shouldTakeProfit = true;
+          }
+        }
+      } else if (ticker.last >= tpTarget) {
+        shouldTakeProfit = true;
+      }
+
+      if (shouldTakeProfit) {
+        this.isPlacingOrder = true;
+        try {
+          const baseAsset = this.bot.symbol.split("/")[0];
+          const balances = await this.exchangeManager.fetchBalances(this.account, true);
+          const freeBase = Number(balances[baseAsset]?.free || 0);
+
+          if (freeBase < 0.00005) {
+            this.log("info", `DCA position on exchange has 0 ${baseAsset} available. Reconciling position to 0.`);
+            this.safetyOrdersPlaced = 0;
+            this.lastBuyPrice = 0;
+            this.trailingArmed = false;
+            this.peakPrice = 0;
+            this.db.prepare(`
+              INSERT INTO trades (
+                id, bot_id, symbol, side, price, amount, cost, fee, realized_pnl, is_paper, timestamp
+              ) VALUES (?, ?, ?, 'sell', ?, ?, ?, 0, 0, 0, datetime('now'))
+            `).run(`live-trd-reconcile-${crypto.randomUUID()}`, this.bot.id, this.bot.symbol, ticker.last, totalAmount, totalAmount * ticker.last);
+            return;
+          }
+
+          const sellAmount = Math.floor(Math.min(totalAmount, freeBase * 0.995) * 100000) / 100000;
+          if (sellAmount * ticker.last < 1.0) {
+            this.log("info", `DCA remaining position is dust ($${(sellAmount * ticker.last).toFixed(2)}). Resetting.`);
+            this.safetyOrdersPlaced = 0;
+            this.lastBuyPrice = 0;
+            this.trailingArmed = false;
+            this.peakPrice = 0;
+            return;
+          }
+
+          this.log(
+            "info",
+            `DCA Take Profit hit! Price: $${ticker.last}${this.trailingArmed ? ` (Peak: $${this.peakPrice.toFixed(2)})` : ""}, Avg Entry: $${avgEntry.toFixed(2)}, Target: +${this.config.takeProfitPercentage}%. Executing sell of ${sellAmount} ${baseAsset}...`
+          );
+
+          const order = await this.placeOrder("sell", "market", ticker.last, sellAmount, true);
+          const execPrice = order.price || ticker.last;
+          const feeRate = order.type === "limit" ? 0.004 : 0.009;
+          const grossPnl = (execPrice - avgEntry) * sellAmount;
+          const roundTripFee = (avgEntry * sellAmount * 0.009) + (execPrice * sellAmount * feeRate);
+          const pnl = Number((grossPnl - roundTripFee).toFixed(4));
           this.safetyOrdersPlaced = 0;
           this.lastBuyPrice = 0;
-          this.db.prepare(`
-            INSERT INTO trades (
-              id, bot_id, symbol, side, price, amount, cost, fee, realized_pnl, is_paper, timestamp
-            ) VALUES (?, ?, ?, 'sell', ?, ?, ?, 0, 0, 0, datetime('now'))
-          `).run(`live-trd-reconcile-${crypto.randomUUID()}`, this.bot.id, this.bot.symbol, ticker.last, totalAmount, totalAmount * ticker.last);
-          return;
-        }
-
-        const sellAmount = Math.floor(Math.min(totalAmount, freeBase * 0.995) * 100000) / 100000;
-        if (sellAmount * ticker.last < 1.0) {
-          this.log("info", `DCA remaining position is dust ($${(sellAmount * ticker.last).toFixed(2)}). Resetting.`);
-          this.safetyOrdersPlaced = 0;
-          this.lastBuyPrice = 0;
-          return;
-        }
-
-        this.log(
-          "info",
-          `DCA Take Profit hit! Price: $${ticker.last}, Avg Entry: $${avgEntry.toFixed(2)}, Target: +${this.config.takeProfitPercentage}%. Executing sell of ${sellAmount} ${baseAsset}...`
-        );
-
-        const grossPnl = (ticker.last - avgEntry) * sellAmount;
-        // Verified Coinbase fee deduction: 0.90% buy fee + 0.90% sell fee (1.80% round-trip)
-        const roundTripFee = (avgEntry * sellAmount * 0.009) + (ticker.last * sellAmount * 0.009);
-        const pnl = Number((grossPnl - roundTripFee).toFixed(4));
-        const order = await this.placeOrder("sell", "market", ticker.last, sellAmount);
-        this.safetyOrdersPlaced = 0;
-        this.lastBuyPrice = 0;
+          this.trailingArmed = false;
+          this.peakPrice = 0;
 
         const isWin = pnl > 0 ? 1 : 0;
         // Record authentic NET realized PnL & winning trade stats
@@ -186,6 +228,7 @@ export class DcaStrategy extends BaseStrategy {
         this.isPlacingOrder = false;
       }
       return;
+      }
     }
 
     // 5. Stop Loss Check
