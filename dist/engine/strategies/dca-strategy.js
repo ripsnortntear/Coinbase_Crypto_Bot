@@ -15,6 +15,7 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
     lastTpErrorTime = 0;
     lastSlErrorTime = 0;
     lastSoErrorTime = 0;
+    lastBaseErrorTime = 0;
     trailingArmed = false;
     peakPrice = 0;
     lastGuardLogTime = 0;
@@ -114,6 +115,14 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
                 }
                 return;
             }
+            if (nowTs - this.lastBaseErrorTime <= 300000)
+                return;
+            const cashCheck = await this.hasSufficientCash(this.config.baseOrderAmount);
+            if (!cashCheck.ok) {
+                this.lastBaseErrorTime = nowTs;
+                this.log("warn", `DCA base order paused: need $${this.config.baseOrderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+                return;
+            }
             const amount = Number((this.config.baseOrderAmount / ticker.last).toFixed(5));
             if (amount > 0) {
                 this.isPlacingOrder = true;
@@ -125,7 +134,8 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
                     this.peakPrice = 0;
                 }
                 catch (err) {
-                    this.log("error", `Failed placing DCA base order: ${err.message}`);
+                    this.lastBaseErrorTime = Date.now();
+                    this.log("error", `Failed placing DCA base order (cooling down 5m): ${err.message}`);
                 }
                 finally {
                     this.isPlacingOrder = false;

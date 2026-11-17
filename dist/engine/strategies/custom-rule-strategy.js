@@ -8,6 +8,8 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
     config;
     inPosition = false;
     entryPrice = 0;
+    lastBuyErrorTime = 0;
+    lastStopLossTime = 0;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -20,7 +22,10 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
         };
     }
     async initialize() {
-        this.log("info", `🎨 Visual Rule Strategy active for ${this.bot.symbol} (${this.config.conditions.length} ${this.config.logic} conditions, TP +${this.config.takeProfitPercentage}%)`);
+        const pos = this.hydratePositionFromDb();
+        this.inPosition = pos.inPosition;
+        this.entryPrice = pos.entryPrice;
+        this.log("info", `🎨 Visual Rule Strategy active for ${this.bot.symbol} (${this.config.conditions.length} ${this.config.logic} conditions, TP +${this.config.takeProfitPercentage}%)${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`);
     }
     evalOp(actual, op, target) {
         switch (op) {
@@ -32,6 +37,9 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
         }
     }
     async onTick(ticker) {
+        const pos = this.hydratePositionFromDb();
+        this.inPosition = pos.inPosition;
+        this.entryPrice = pos.entryPrice;
         if (!this.inPosition || this.entryPrice <= 0)
             return;
         if (ticker.last >= this.entryPrice * (1 + this.config.takeProfitPercentage / 100)) {
@@ -39,12 +47,19 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
         }
         else if (this.config.stopLossPercentage &&
             ticker.last <= this.entryPrice * (1 - this.config.stopLossPercentage / 100)) {
+            this.lastStopLossTime = Date.now();
             await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
         }
     }
     async onCandle(candles) {
-        if (this.inPosition || candles.length < 25 || this.config.conditions.length === 0)
+        const nowTs = Date.now();
+        if (this.inPosition ||
+            candles.length < 25 ||
+            this.config.conditions.length === 0 ||
+            nowTs - this.lastBuyErrorTime <= 300000 ||
+            nowTs - this.lastStopLossTime < 3600000) {
             return;
+        }
         const closes = candles.map((c) => c.close);
         const lastPrice = closes[closes.length - 1];
         const rsiArr = technicalindicators_1.RSI.calculate({ values: closes, period: 14 });
@@ -85,7 +100,8 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
                 this.entryPrice = lastPrice;
             }
             catch (err) {
-                this.log("error", `Visual Rule BUY failed: ${err.message}`);
+                this.lastBuyErrorTime = Date.now();
+                this.log("error", `Visual Rule BUY failed (cooling down 5m): ${err.message}`);
             }
         }
     }

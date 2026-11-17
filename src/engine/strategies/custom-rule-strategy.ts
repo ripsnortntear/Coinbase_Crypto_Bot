@@ -7,6 +7,8 @@ export class CustomRuleStrategy extends BaseStrategy {
   private config: CustomRuleConfig;
   private inPosition = false;
   private entryPrice = 0;
+  private lastBuyErrorTime = 0;
+  private lastStopLossTime = 0;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -21,9 +23,12 @@ export class CustomRuleStrategy extends BaseStrategy {
   }
 
   public async initialize(): Promise<void> {
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
     this.log(
       "info",
-      `🎨 Visual Rule Strategy active for ${this.bot.symbol} (${this.config.conditions.length} ${this.config.logic} conditions, TP +${this.config.takeProfitPercentage}%)`
+      `🎨 Visual Rule Strategy active for ${this.bot.symbol} (${this.config.conditions.length} ${this.config.logic} conditions, TP +${this.config.takeProfitPercentage}%)${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`
     );
   }
 
@@ -38,6 +43,9 @@ export class CustomRuleStrategy extends BaseStrategy {
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
     if (!this.inPosition || this.entryPrice <= 0) return;
 
     if (ticker.last >= this.entryPrice * (1 + this.config.takeProfitPercentage / 100)) {
@@ -46,12 +54,22 @@ export class CustomRuleStrategy extends BaseStrategy {
       this.config.stopLossPercentage &&
       ticker.last <= this.entryPrice * (1 - this.config.stopLossPercentage / 100)
     ) {
+      this.lastStopLossTime = Date.now();
       await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
     }
   }
 
   public async onCandle(candles: Candle[]): Promise<void> {
-    if (this.inPosition || candles.length < 25 || this.config.conditions.length === 0) return;
+    const nowTs = Date.now();
+    if (
+      this.inPosition ||
+      candles.length < 25 ||
+      this.config.conditions.length === 0 ||
+      nowTs - this.lastBuyErrorTime <= 300000 ||
+      nowTs - this.lastStopLossTime < 3600000
+    ) {
+      return;
+    }
 
     const closes = candles.map((c) => c.close);
     const lastPrice = closes[closes.length - 1];
@@ -92,7 +110,8 @@ export class CustomRuleStrategy extends BaseStrategy {
         this.inPosition = true;
         this.entryPrice = lastPrice;
       } catch (err: any) {
-        this.log("error", `Visual Rule BUY failed: ${err.message}`);
+        this.lastBuyErrorTime = Date.now();
+        this.log("error", `Visual Rule BUY failed (cooling down 5m): ${err.message}`);
       }
     }
   }

@@ -8,6 +8,8 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
     inPosition = false;
     entryPrice = 0;
     lastBuyErrorTime = 0;
+    lastStopLossTime = 0;
+    lastSlCooldownLogTime = 0;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -39,7 +41,8 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
                 await this.closePosition(ticker.last);
             }
             else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-                this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+                this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+                this.lastStopLossTime = Date.now();
                 await this.closePosition(ticker.last);
             }
         }
@@ -63,6 +66,14 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
         // BUY Signal: RSI dips below oversold and starts turning up
         const nowTs = Date.now();
         if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi && nowTs - this.lastBuyErrorTime > 300000) {
+            if (nowTs - this.lastStopLossTime < 3600000) {
+                if (nowTs - this.lastSlCooldownLogTime > 300000) {
+                    this.lastSlCooldownLogTime = nowTs;
+                    const minsLeft = Math.ceil((3600000 - (nowTs - this.lastStopLossTime)) / 60000);
+                    this.log("info", `Momentum BUY paused: post-stop-loss cooldown (${minsLeft}m remaining).`);
+                }
+                return;
+            }
             const guard = this.canEnterBuy();
             if (!guard.allowed) {
                 this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
@@ -140,8 +151,12 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
             }
             const sellAmount = Math.floor(Math.min(totalAmount, freeBase * 0.995) * 100000) / 100000;
             if (sellAmount * currentPrice >= 1.0) {
-                const pnl = Number(((currentPrice - avgEntry) * sellAmount).toFixed(4));
                 const order = await this.placeOrder("sell", "market", currentPrice, sellAmount);
+                const execPrice = order.price || currentPrice;
+                const sellFeeRate = order.type === "limit" ? 0.004 : 0.009;
+                const grossPnl = (execPrice - avgEntry) * sellAmount;
+                const roundTripFee = (avgEntry * sellAmount * 0.009) + (execPrice * sellAmount * sellFeeRate);
+                const pnl = Number((grossPnl - roundTripFee).toFixed(4));
                 const isWin = pnl > 0 ? 1 : 0;
                 this.db.prepare(`
           UPDATE trading_bots

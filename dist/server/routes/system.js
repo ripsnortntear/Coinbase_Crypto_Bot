@@ -142,6 +142,19 @@ function createSystemRouter(botRunner, exchangeManager) {
             res.status(500).json({ ok: false, error: err.message });
         }
     });
+    // Clear logs
+    router.delete("/logs", (req, res) => {
+        try {
+            const result = db.prepare("DELETE FROM system_logs").run();
+            if (req.query.empty !== "1") {
+                db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Engine logs cleared by administrator', ?)").run(new Date().toISOString());
+            }
+            res.json({ ok: true, deleted: Number(result.changes || 0), message: "Engine logs cleared" });
+        }
+        catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
     // Emergency Panic Kill-Switch
     router.post("/panic", async (req, res) => {
         try {

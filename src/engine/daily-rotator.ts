@@ -76,14 +76,76 @@ export class DailyRotator {
 
   public async onBotClosedPosition(botId: string): Promise<void> {
     if (!this.pendingRotationBotIds.has(botId)) return;
+    if (this.isRunningSweep) {
+      // Keep queued so it re-evaluates once the active sweep finishes
+      setTimeout(() => {
+        this.onBotClosedPosition(botId).catch(() => {});
+      }, 5000);
+      return;
+    }
     this.pendingRotationBotIds.delete(botId);
     this.savePendingBots();
     this.db.prepare(`
       INSERT INTO system_logs (level, bot_id, message, timestamp)
       VALUES ('info', ?, '🔄 Pending-rotation bot closed its open position. Re-evaluating fleet via Hyperopt...', ?)
     `).run(botId, new Date().toISOString());
-    if (!this.isRunningSweep && this.isEnabled()) {
+    if (this.isEnabled()) {
       await this.runRotation().catch(() => {});
+    }
+  }
+
+  private async hasBotOpenPosition(
+    bot: any,
+    account: any,
+    balances: Record<string, { free: number; used: number; total: number }>
+  ): Promise<{ isOpen: boolean; reason: string }> {
+    // 1. Check open DB orders for this bot
+    const openOrd = this.db
+      .prepare("SELECT COUNT(*) as cnt FROM orders WHERE bot_id = ? AND status IN ('open', 'pending')")
+      .get(bot.id) as { cnt: number } | undefined;
+    if ((openOrd?.cnt || 0) > 0) {
+      return { isOpen: true, reason: `${openOrd!.cnt} open order(s)` };
+    }
+
+    // 2. Check open DB position (buys after latest sell)
+    const lastSell = this.db
+      .prepare("SELECT MAX(timestamp) as lastSellTime FROM trades WHERE bot_id = ? AND side = 'sell'")
+      .get(bot.id) as { lastSellTime: string | null } | undefined;
+    const buyRows = lastSell?.lastSellTime
+      ? (this.db
+          .prepare("SELECT amount FROM trades WHERE bot_id = ? AND side = 'buy' AND timestamp > ?")
+          .all(bot.id, lastSell.lastSellTime) as { amount: number }[])
+      : (this.db
+          .prepare("SELECT amount FROM trades WHERE bot_id = ? AND side = 'buy'")
+          .all(bot.id) as { amount: number }[]);
+    const dbOpenQty = buyRows.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+    // 3. Check total exchange balance (free + locked in orders)
+    const baseAsset = String(bot.symbol).split("/")[0];
+    const totalBase = Number(balances[baseAsset]?.total ?? balances[baseAsset]?.free ?? 0);
+
+    if (totalBase <= 0.00005 && dbOpenQty <= 0.00005) {
+      return { isOpen: false, reason: "flat" };
+    }
+
+    try {
+      const t = await this.exchangeManager.fetchTicker(bot.symbol, account.exchange_id);
+      const price = Number(t.last || 0);
+      const effectiveQty = Math.max(totalBase, dbOpenQty);
+      const assetUsd = effectiveQty * price;
+      if (price > 0 && assetUsd >= 1.0) {
+        return { isOpen: true, reason: `holding $${assetUsd.toFixed(2)} ${baseAsset}` };
+      }
+      if (dbOpenQty > 0.00005 && totalBase > 0.00005) {
+        return { isOpen: true, reason: `open DB position (${dbOpenQty.toFixed(5)} ${baseAsset})` };
+      }
+      return { isOpen: false, reason: "dust" };
+    } catch {
+      // Conservative fail-safe: never destroy a bot if ticker lookup fails while holding coins/DB position
+      if (dbOpenQty > 0.00005 || totalBase > 0.00005) {
+        return { isOpen: true, reason: `ticker unavailable while holding ${baseAsset}` };
+      }
+      return { isOpen: false, reason: "flat" };
     }
   }
 
@@ -229,17 +291,10 @@ export class DailyRotator {
             continue;
           }
 
-          const baseAsset = String(bot.symbol).split("/")[0];
-          const freeBase = Number(balances[baseAsset]?.free || 0);
-          let assetUsd = 0;
-          try {
-            const t = await this.exchangeManager.fetchTicker(bot.symbol, account.exchange_id);
-            assetUsd = freeBase * (t.last || 0);
-          } catch {}
-
-          if (assetUsd >= 1.5) {
+          const openCheck = await this.hasBotOpenPosition(bot, account, balances);
+          if (openCheck.isOpen) {
             this.pendingRotationBotIds.add(bot.id);
-            keptOpenBots.push(`${bot.name} (holding $${assetUsd.toFixed(2)} ${baseAsset}, queued for rotation on close)`);
+            keptOpenBots.push(`${bot.name} (${openCheck.reason}, queued for rotation on close)`);
             continue;
           }
 
@@ -294,7 +349,10 @@ export class DailyRotator {
           if (existing) {
             this.db.prepare("UPDATE trading_bots SET config_json = ?, updated_at = datetime('now') WHERE id = ?")
               .run(JSON.stringify(botConfig), existing.id);
-            if (existing.status !== "active") {
+            if (existing.status === "active") {
+              await this.botRunner.stopBot(existing.id);
+              await this.botRunner.startBot(existing.id, true);
+            } else {
               await this.botRunner.startBot(existing.id, true);
             }
             deployedBots.push(`${existing.name} (updated ${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
@@ -332,7 +390,7 @@ export class DailyRotator {
         INSERT INTO system_logs (level, message, metadata_json, timestamp)
         VALUES ('info', ?, ?, ?)
       `).run(
-        `🤖 Daily Hyperopt Rotator finished (${pairs.length} markets): Deployed [${deployedBots.join(", ") || "None"}], Removed [${removedBots.join(", ") || "None"}]`,
+        `🤖 Daily Hyperopt Rotator finished (${pairs.length} markets): Deployed [${deployedBots.join(", ") || "None"}], Removed [${removedBots.join(", ") || "None"}], Kept Open [${keptOpenBots.join(", ") || "None"}]`,
         JSON.stringify(report),
         report.ranAt
       );

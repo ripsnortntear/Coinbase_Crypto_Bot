@@ -14,8 +14,8 @@ export class GridStrategy extends BaseStrategy {
 
   public async initialize(): Promise<void> {
     const { upperPrice, lowerPrice, grids } = this.config;
-    if (!upperPrice || !lowerPrice || !grids || upperPrice <= lowerPrice) {
-      this.log("error", "Invalid Grid configuration bounds");
+    if (!upperPrice || !lowerPrice || !grids || grids < 2 || upperPrice <= lowerPrice) {
+      this.log("error", "Invalid Grid configuration bounds (requires grids >= 2 and upperPrice > lowerPrice)");
       return;
     }
 

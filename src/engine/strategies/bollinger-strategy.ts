@@ -7,6 +7,8 @@ export class BollingerStrategy extends BaseStrategy {
   private inPosition = false;
   private entryPrice = 0;
   private lastBuyErrorTime = 0;
+  private lastStopLossTime = 0;
+  private lastSlCooldownLogTime = 0;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -41,7 +43,8 @@ export class BollingerStrategy extends BaseStrategy {
         this.log("info", `Bollinger Take-Profit reached (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
         await this.closePosition(ticker.last);
       } else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-        this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+        this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+        this.lastStopLossTime = Date.now();
         await this.closePosition(ticker.last);
       }
     }
@@ -65,6 +68,14 @@ export class BollingerStrategy extends BaseStrategy {
     // BUY Signal: Price touches or drops below lower band (oversold mean-reversion)
     const nowTs = Date.now();
     if (!this.inPosition && lastPrice <= currentBB.lower && nowTs - this.lastBuyErrorTime > 300000) {
+      if (nowTs - this.lastStopLossTime < 3600000) {
+        if (nowTs - this.lastSlCooldownLogTime > 300000) {
+          this.lastSlCooldownLogTime = nowTs;
+          const minsLeft = Math.ceil((3600000 - (nowTs - this.lastStopLossTime)) / 60000);
+          this.log("info", `Bollinger BUY paused: post-stop-loss cooldown (${minsLeft}m remaining).`);
+        }
+        return;
+      }
       const guard = this.canEnterBuy();
       if (!guard.allowed) {
         this.log("warn", `🛡️ Bollinger BUY paused by Guard: ${guard.reason}`);
@@ -152,8 +163,12 @@ export class BollingerStrategy extends BaseStrategy {
 
       const sellAmount = Math.floor(Math.min(totalAmount, freeBase * 0.995) * 100000) / 100000;
       if (sellAmount * currentPrice >= 1.0) {
-        const pnl = Number(((currentPrice - avgEntry) * sellAmount).toFixed(4));
         const order = await this.placeOrder("sell", "market", currentPrice, sellAmount);
+        const execPrice = order.price || currentPrice;
+        const sellFeeRate = order.type === "limit" ? 0.004 : 0.009;
+        const grossPnl = (execPrice - avgEntry) * sellAmount;
+        const roundTripFee = (avgEntry * sellAmount * 0.009) + (execPrice * sellAmount * sellFeeRate);
+        const pnl = Number((grossPnl - roundTripFee).toFixed(4));
         const isWin = pnl > 0 ? 1 : 0;
 
         this.db.prepare(`

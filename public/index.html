@@ -3,20 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Coinbase Crypto Bot | Automated Trading Operations</title>
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="stylesheet" href="style.css">
-  <script src="vendor/lightweight-charts.standalone.js"></script>
+  <title>OldsmarChaos | Crypto Bot & Trading Operations</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/sso-header.css">
+  <link rel="stylesheet" href="/crypto/style.css?v=20261115_scrollbar_v10">
+  <script src="/crypto/vendor/lightweight-charts.standalone.js"></script>
 </head>
 <body>
+  <!-- Top Universal SSO Navigation Header -->
+  <div id="sso-header-root"></div>
+  <script src="/sso-header.js"></script>
+
   <div class="crypto-container">
     <!-- Top Bar: Metrics & System Status -->
     <header class="top-nav">
       <div class="brand-section">
         <div class="brand-title">
           <span class="icon">⚡</span>
-          <h1>COINBASE<span>BOT</span></h1>
-          <span class="badge-root" id="adminBadge">ADMIN</span>
+          <h1>CRYPTO<span>OPS</span></h1>
+          <span class="badge-root">ROOT ADMIN</span>
         </div>
         <div class="mode-badge live" id="modeBadge">
           <span class="pulse-dot"></span>
@@ -57,11 +62,11 @@
         <button id="btnSystemStatus" class="btn btn-secondary" title="View Process Uptime, Memory, Regime Guard & Risk Controls">
           <span>📊</span> Status
         </button>
+        <button id="btnRestartService" class="btn btn-secondary" style="border-color: rgba(234,179,8,0.4); color: #facc15;" title="Gracefully Restart Engine Daemon">
+          <span>🔄</span> Restart
+        </button>
         <button id="btnPanic" class="btn btn-danger" title="Emergency Stop All Bots & Cancel All Orders">
           <span>🚨</span> PANIC STOP
-        </button>
-        <button id="btnLogout" class="btn btn-secondary" title="Sign out of Admin Session">
-          Sign Out
         </button>
       </div>
     </header>
@@ -498,6 +503,10 @@
 
       <!-- Tab: Engine Logs -->
       <div id="tab-logs" class="tab-content">
+        <div class="exchanges-actions-bar" style="display: flex; justify-content: flex-end; gap: 8px;">
+          <button id="btnRefreshLogs" class="btn btn-sm" style="background: rgba(255,255,255,0.06); color: var(--text-main); border: 1px solid var(--border-color);">Refresh Logs</button>
+          <button id="btnClearLogs" class="btn btn-danger btn-sm">Clear Engine Logs</button>
+        </div>
         <div id="logsConsole" class="logs-console"></div>
       </div>
     </section>
@@ -808,7 +817,7 @@
             <label>Coinbase Private Key Secret (PEM / EC Private Key)</label>
             <textarea id="exApiSecret" class="input" rows="4" placeholder="-----BEGIN EC PRIVATE KEY-----&#10;...&#10;-----END EC PRIVATE KEY-----" required style="font-family: monospace; font-size: 0.8rem; resize: vertical;"></textarea>
           </div>
-          <p class="form-note">🔒 Credentials are encrypted at rest via AES-256-GCM. We recommend View + Trade only permissions with IP whitelisting.</p>
+          <p class="form-note">🔒 Credentials are encrypted at rest via AES-256-GCM. We recommend View + Trade permissions with IP whitelisting.</p>
         </div>
 
         <div class="modal-footer">
@@ -819,40 +828,18 @@
     </div>
   </div>
 
-  <!-- Modal: Admin Authentication -->
-  <div id="modalLogin" class="modal-backdrop" style="display: none; z-index: 9999; backdrop-filter: blur(8px);">
-    <div class="modal-card" style="max-width: 420px;">
-      <div class="modal-header">
-        <h3>⚡ Coinbase Crypto Bot Login</h3>
-      </div>
-      <form id="formLogin" class="modal-body">
-        <p class="form-note" style="margin-bottom: 16px;">
-          Authenticate with your administrative credentials to manage trading bots and portfolio funds.
-        </p>
-        <div id="loginError" style="display: none; padding: 10px; margin-bottom: 14px; background: rgba(239,68,68,0.15); border: 1px solid #ef4444; border-radius: 6px; color: #f87171; font-size: 0.85rem;"></div>
-        <div class="form-group">
-          <label>Admin Username</label>
-          <input type="text" id="loginUsername" class="input" placeholder="admin" required autofocus>
-        </div>
-        <div class="form-group">
-          <label>Password</label>
-          <input type="password" id="loginPassword" class="input" placeholder="••••••••••••" required>
-        </div>
-        <div class="modal-footer" style="padding-top: 10px;">
-          <button type="submit" class="btn btn-primary" style="width: 100%;">Sign In to Terminal</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modal: System Health, Regime Guard & Risk Controls -->
-  <div id="modalSystemStatus" class="modal-backdrop" style="display: none; z-index: 9998;">
+  <!-- Modal: System Health & Status -->
+  <div id="modalSystemStatus" class="modal-backdrop" style="display: none; z-index: 9999;">
     <div class="modal-card" style="max-width: 480px;">
       <div class="modal-header">
-        <h3>📊 Engine Status &amp; Risk Guards</h3>
+        <h3>📊 Engine System Status</h3>
         <button class="modal-close" data-close="modalSystemStatus">&times;</button>
       </div>
       <div class="modal-body" id="systemStatusBody" style="font-size: 0.9rem; padding: 16px 20px;">
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Daemon Service:</span>
+          <span style="color: #10b981; font-weight: 600;">🟢 Active (systemd crypto-bot)</span>
+        </div>
         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
           <span style="color: #94a3b8;">Process PID:</span>
           <span id="sysStatPid" style="font-family: monospace; color: #38bdf8;">--</span>
@@ -873,6 +860,10 @@
           <span style="color: #94a3b8;">Active Bots / Total:</span>
           <span id="sysStatBots" style="color: #f1f5f9; font-weight: 500;">--</span>
         </div>
+        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06);">
+          <span style="color: #94a3b8;">Database Engine:</span>
+          <span style="color: #10b981; font-weight: 500;">node:sqlite (WAL Mode)</span>
+        </div>
         <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.12);">
           <div style="font-weight: 600; color: #38bdf8; margin-bottom: 8px;">🛡️ Risk Guards &amp; Execution</div>
           <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
@@ -890,6 +881,10 @@
             <input type="checkbox" id="chkMlFilter">
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Daily 24h Hyperopt Auto-Rotator:</span>
+            <input type="checkbox" id="chkAutoRotate" checked>
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
             <span style="color: #cbd5e1;">Max Coin Exposure Cap (%):</span>
             <input type="number" id="inpMaxCoinExposure" class="input" value="50" min="5" max="100" step="5" style="width: 110px; padding: 4px 8px;">
           </div>
@@ -897,21 +892,25 @@
             <span style="color: #cbd5e1;">Max Daily Loss Circuit Breaker ($):</span>
             <input type="number" id="inpMaxDailyLoss" class="input" value="1000" min="10" step="10" style="width: 110px; padding: 4px 8px;">
           </div>
-          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+          <div id="circuitBreakerStatusRow" style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
             <span style="color: #94a3b8;">24h Realized PnL / Breaker:</span>
             <span id="sysStatCircuitBreaker" style="font-weight: 600; color: #10b981;">ARMED ($0.00)</span>
           </div>
           <button type="button" id="btnSaveRiskSettings" class="btn btn-primary" style="width: 100%; margin-top: 8px; padding: 7px;">Save Risk Settings</button>
+          <button type="button" id="btnRunAutoRotate" class="btn btn-secondary" style="width: 100%; margin-top: 6px; padding: 7px; border-color: rgba(168,85,247,0.4); color: #c084fc;">🤖 Run Daily Hyperopt Rotation Now</button>
         </div>
       </div>
-      <div class="modal-footer">
+      <div class="modal-footer" style="display: flex; justify-content: space-between;">
+        <button type="button" id="btnModalRestart" class="btn btn-secondary" style="border-color: rgba(234,179,8,0.4); color: #facc15;">
+          <span>🔄</span> Restart Service
+        </button>
         <button type="button" class="btn btn-secondary" data-close="modalSystemStatus">Close</button>
       </div>
     </div>
   </div>
 
   <!-- Modal: Historical Backtest Simulator -->
-  <div id="modalBacktest" class="modal-backdrop" style="display: none; z-index: 9998;">
+  <div id="modalBacktest" class="modal-backdrop" style="display: none; z-index: 9999;">
     <div class="modal-card" style="max-width: 680px; width: 95%;">
       <div class="modal-header">
         <h3>🧪 Historical Strategy Backtester</h3>
@@ -989,7 +988,7 @@
   </div>
 
   <!-- Modal: Visual Strategy Canvas (Superalgos-style Rule Builder) -->
-  <div id="modalCanvas" class="modal-backdrop" style="display: none; z-index: 9998;">
+  <div id="modalCanvas" class="modal-backdrop" style="display: none; z-index: 9999;">
     <div class="modal-card" style="max-width: 680px; width: 95%;">
       <div class="modal-header">
         <h3>🎨 Visual Strategy Canvas</h3>
@@ -1048,6 +1047,6 @@
     </div>
   </div>
 
-  <script src="app.js?v=20261116_v24"></script>
+  <script src="/crypto/app.js?v=20261116_v24"></script>
 </body>
 </html>

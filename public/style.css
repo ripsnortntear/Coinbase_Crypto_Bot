@@ -971,9 +971,10 @@ html.is-scrolling .macro-row::-webkit-scrollbar-thumb {
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  padding: 24px 14px 12px;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 4px;
   position: relative;
   overflow: hidden;

@@ -1,4 +1,4 @@
-// Coinbase Crypto Bot - Automated Trading Terminal Client
+// OldsmarChaos Crypto Trading Dashboard Client Application
 (function () {
   let chart = null;
   let candleSeries = null;
@@ -8,35 +8,7 @@
   let currentTimeframe = "5m";
   let ws = null;
   let manualSide = "buy";
-  const API_BASE = (window.__BASE_PATH__ !== undefined ? window.__BASE_PATH__ : "").replace(/\/+$/, "");
-
-  // Intercept fetch calls to catch 401 Unauthenticated responses
-  const originalFetch = window.fetch;
-  window.fetch = async function (...args) {
-    const res = await originalFetch.apply(this, args);
-    if (res.status === 401 && typeof args[0] === "string" && !args[0].includes("/api/auth/")) {
-      openModal("modalLogin");
-    }
-    return res;
-  };
-
-  async function checkAuth() {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/me`);
-      const json = await res.json();
-      if (json.ok && json.data && json.data.user) {
-        closeModal("modalLogin");
-        const btnLogout = document.getElementById("btnLogout");
-        if (btnLogout) {
-          btnLogout.style.display = "inline-flex";
-          btnLogout.textContent = `Sign Out (${json.data.user.username})`;
-        }
-        return true;
-      }
-    } catch (e) {}
-    openModal("modalLogin");
-    return false;
-  }
+  const API_BASE = (window.__BASE_PATH__ !== undefined ? window.__BASE_PATH__ : (window.location.pathname.startsWith("/crypto") ? "/crypto" : "")).replace(/\/+$/, "");
 
   const state = {
     overview: {},
@@ -84,15 +56,10 @@
     });
 
     initChart();
+    initWebSocket();
     initEventListeners();
     initFadingScrollbar();
-
-    checkAuth().then(isLoggedIn => {
-      if (isLoggedIn) {
-        initWebSocket();
-        fetchInitialData();
-      }
-    });
+    fetchInitialData();
   });
 
   // 1. Initialize Lightweight Candlestick Chart
@@ -199,8 +166,7 @@
     }
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsBase = API_BASE ? `${API_BASE}/ws` : "/ws";
-    const wsUrl = `${protocol}//${window.location.host}${wsBase}`;
+    const wsUrl = `${protocol}//${window.location.host}/crypto/ws`;
 
     try {
       clearTimeout(wsReconnectTimer);
@@ -397,7 +363,7 @@
 
   async function fetchOverview() {
     try {
-      const res = await fetch(`${API_BASE}/api/system/overview`);
+      const res = await fetch(API_BASE + "/api/system/overview");
       const json = await res.json();
       if (!json.ok) return;
 
@@ -459,7 +425,7 @@
 
   async function fetchBots() {
     try {
-      const res = await fetch(`${API_BASE}/api/bots`);
+      const res = await fetch(API_BASE + "/api/bots");
       const json = await res.json();
       if (!json.ok) return;
 
@@ -626,7 +592,7 @@
 
   async function fetchOrders() {
     try {
-      const res = await fetch(`${API_BASE}/api/orders?status=open`);
+      const res = await fetch(API_BASE + "/api/orders?status=open");
       const json = await res.json();
       if (!json.ok) return;
 
@@ -677,7 +643,7 @@
 
   async function fetchTrades() {
     try {
-      const res = await fetch(`${API_BASE}/api/orders/trades?limit=50`);
+      const res = await fetch(API_BASE + "/api/orders/trades?limit=50");
       const json = await res.json();
       if (!json.ok) return;
 
@@ -710,7 +676,7 @@
 
   async function fetchExchanges() {
     try {
-      const res = await fetch(`${API_BASE}/api/exchanges`);
+      const res = await fetch(API_BASE + "/api/exchanges");
       const json = await res.json();
       if (!json.ok) return;
 
@@ -810,12 +776,17 @@
 
   async function fetchLogs() {
     try {
-      const res = await fetch(`${API_BASE}/api/system/logs?limit=80`);
+      const res = await fetch(API_BASE + "/api/system/logs?limit=80");
       const json = await res.json();
       if (!json.ok) return;
 
       const consoleEl = document.getElementById("logsConsole");
       if (!consoleEl) return;
+
+      if (!json.data.length) {
+        consoleEl.innerHTML = `<div class="log-entry"><span class="log-msg" style="color: var(--text-muted);">No engine logs recorded.</span></div>`;
+        return;
+      }
 
       consoleEl.innerHTML = json.data.map(l => `
         <div class="log-entry">
@@ -827,90 +798,28 @@
     } catch (err) {}
   }
 
+  async function clearLogs() {
+    if (!confirm("Clear all engine logs?")) return;
+    try {
+      const btn = document.getElementById("btnClearLogs");
+      if (btn) btn.disabled = true;
+      const res = await fetch(API_BASE + "/api/system/logs", { method: "DELETE" });
+      const json = await res.json();
+      if (json.ok) {
+        await fetchLogs();
+      } else {
+        alert("Failed to clear logs: " + (json.error || "Unknown error"));
+      }
+    } catch (err) {
+      alert("Error clearing logs: " + err.message);
+    } finally {
+      const btn = document.getElementById("btnClearLogs");
+      if (btn) btn.disabled = false;
+    }
+  }
+
   // 4. Event Listeners
   function initEventListeners() {
-    // Sign Out Button Handler
-    const btnLogout = document.getElementById("btnLogout");
-    if (btnLogout) {
-      btnLogout.addEventListener("click", async (e) => {
-        e.preventDefault();
-        try {
-          await fetch(`${API_BASE}/api/auth/logout`, { method: "POST" });
-        } catch (err) {
-          console.error("Logout request error:", err);
-        }
-        // Invalidate session cookie client-side
-        document.cookie = "cb_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        // Teardown live websocket
-        if (ws) {
-          try { ws.close(); } catch (e) {}
-          ws = null;
-        }
-        // Clear login form fields & messages
-        const loginPass = document.getElementById("loginPassword");
-        if (loginPass) loginPass.value = "";
-        const loginError = document.getElementById("loginError");
-        if (loginError) {
-          loginError.style.display = "none";
-          loginError.textContent = "";
-        }
-        openModal("modalLogin");
-      });
-    }
-
-    // Login Form Submit Handler
-    const formLogin = document.getElementById("formLogin");
-    if (formLogin) {
-      formLogin.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const usernameInput = document.getElementById("loginUsername");
-        const passwordInput = document.getElementById("loginPassword");
-        const errorDiv = document.getElementById("loginError");
-
-        const username = usernameInput ? usernameInput.value.trim() : "";
-        const password = passwordInput ? passwordInput.value : "";
-
-        if (!username || !password) {
-          if (errorDiv) {
-            errorDiv.textContent = "Please enter both username and password.";
-            errorDiv.style.display = "block";
-          }
-          return;
-        }
-
-        try {
-          const res = await fetch(`${API_BASE}/api/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username, password }),
-          });
-          const json = await res.json();
-          if (json.ok) {
-            closeModal("modalLogin");
-            if (errorDiv) errorDiv.style.display = "none";
-            if (passwordInput) passwordInput.value = "";
-            const btnLogout = document.getElementById("btnLogout");
-            if (btnLogout && json.data && json.data.user) {
-              btnLogout.style.display = "inline-flex";
-              btnLogout.textContent = `Sign Out (${json.data.user.username})`;
-            }
-            initWebSocket();
-            fetchInitialData();
-            loadChartData(true);
-          } else {
-            if (errorDiv) {
-              errorDiv.textContent = json.error || "Invalid username or password";
-              errorDiv.style.display = "block";
-            }
-          }
-        } catch (err) {
-          if (errorDiv) {
-            errorDiv.textContent = "Network error connecting to authentication service.";
-            errorDiv.style.display = "block";
-          }
-        }
-      });
-    }
     // Symbol Switcher
     const selectSymbol = document.getElementById("selectSymbol");
     if (selectSymbol) {
@@ -928,6 +837,12 @@
         loadChartData(true);
       });
     }
+
+    const btnRefreshLogs = document.getElementById("btnRefreshLogs");
+    if (btnRefreshLogs) btnRefreshLogs.addEventListener("click", fetchLogs);
+
+    const btnClearLogs = document.getElementById("btnClearLogs");
+    if (btnClearLogs) btnClearLogs.addEventListener("click", clearLogs);
 
     // Ribbon Pills Click
     document.querySelectorAll(".ticker-pill").forEach(pill => {
@@ -995,7 +910,7 @@
       if (type === "limit" && price <= 0) return alert("Please specify valid limit price");
 
       try {
-        const res = await fetch(`${API_BASE}/api/orders/manual`, {
+        const res = await fetch(API_BASE + "/api/orders/manual", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1025,7 +940,7 @@
     document.getElementById("btnPanic")?.addEventListener("click", async () => {
       if (state.overview.panicActive) {
         if (!confirm("Panic status is currently active. Do you want to clear panic mode and allow trading again?")) return;
-        await fetch(`${API_BASE}/api/system/panic/reset`, { method: "POST" });
+        await fetch(API_BASE + "/api/system/panic/reset", { method: "POST" });
         fetchOverview();
         return;
       }
@@ -1033,7 +948,7 @@
       if (!confirm("🚨 DANGER: Activate Panic Stop?\n\nThis will immediately pause all automated trading bots and cancel all open limit orders across all exchanges.")) return;
 
       try {
-        const res = await fetch(`${API_BASE}/api/system/panic`, { method: "POST" });
+        const res = await fetch(API_BASE + "/api/system/panic", { method: "POST" });
         const json = await res.json();
         alert(json.message);
         fetchOverview();
@@ -1043,6 +958,19 @@
         alert("Panic execution error");
       }
     });
+
+    // System Status & Engine Service Restart Triggers
+    document.getElementById("btnBacktest")?.addEventListener("click", () => openModal("modalBacktest"));
+    document.getElementById("btnCanvas")?.addEventListener("click", openCanvasModal);
+    document.getElementById("btnAddCanvasNode")?.addEventListener("click", () => addCanvasNodeRow());
+    document.getElementById("btnDeployCanvas")?.addEventListener("click", deployCanvasBot);
+    document.getElementById("btnRunBacktest")?.addEventListener("click", runBacktest);
+    document.getElementById("btnRunOptimize")?.addEventListener("click", runOptimize);
+    document.getElementById("btnSaveRiskSettings")?.addEventListener("click", saveRiskSettings);
+    document.getElementById("btnRunAutoRotate")?.addEventListener("click", runAutoRotateNow);
+    document.getElementById("btnSystemStatus")?.addEventListener("click", openSystemStatusModal);
+    document.getElementById("btnRestartService")?.addEventListener("click", handleServiceRestart);
+    document.getElementById("btnModalRestart")?.addEventListener("click", handleServiceRestart);
 
     // Reset Paper Wallet (deprecated in live trading mode)
 
@@ -1079,14 +1007,6 @@
     });
 
     // Modals
-    document.getElementById("btnBacktest")?.addEventListener("click", () => openModal("modalBacktest"));
-    document.getElementById("btnCanvas")?.addEventListener("click", openCanvasModal);
-    document.getElementById("btnAddCanvasNode")?.addEventListener("click", () => addCanvasNodeRow());
-    document.getElementById("btnDeployCanvas")?.addEventListener("click", deployCanvasBot);
-    document.getElementById("btnRunBacktest")?.addEventListener("click", runBacktest);
-    document.getElementById("btnRunOptimize")?.addEventListener("click", runOptimize);
-    document.getElementById("btnSaveRiskSettings")?.addEventListener("click", saveRiskSettings);
-    document.getElementById("btnSystemStatus")?.addEventListener("click", openSystemStatusModal);
     document.getElementById("btnNewBot")?.addEventListener("click", () => {
       openModal("modalDeployBot");
       const liveUsd = state.overview?.livePortfolio?.totalUsd;
@@ -1164,7 +1084,7 @@
       }
 
       try {
-        const res = await fetch(`${API_BASE}/api/bots`, {
+        const res = await fetch(API_BASE + "/api/bots", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1204,10 +1124,10 @@
       const is_paper = parseInt(document.getElementById("exIsPaper").value);
       const api_key = document.getElementById("exApiKey").value;
       const api_secret = document.getElementById("exApiSecret").value;
-      const passphrase = document.getElementById("exPassphrase") ? document.getElementById("exPassphrase").value : "";
+      const passphrase = document.getElementById("exPassphrase").value;
 
       try {
-        const res = await fetch(`${API_BASE}/api/exchanges`, {
+        const res = await fetch(API_BASE + "/api/exchanges", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -1643,32 +1563,50 @@
     }
   });
 
+  function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    const parts = [];
+    if (d > 0) parts.push(`${d}d`);
+    if (h > 0) parts.push(`${h}h`);
+    if (m > 0) parts.push(`${m}m`);
+    parts.push(`${s}s`);
+    return parts.join(" ");
+  }
+
   async function openSystemStatusModal() {
     openModal("modalSystemStatus");
     try {
-      const res = await fetch(`${API_BASE}/api/system/status`);
+      const res = await fetch(API_BASE + "/api/system/status");
       const json = await res.json();
       if (json.ok && json.data) {
         const d = json.data;
         const pidEl = document.getElementById("sysStatPid");
         if (pidEl) pidEl.textContent = d.pid;
+
         const uptimeEl = document.getElementById("sysStatUptime");
-        if (uptimeEl) uptimeEl.textContent = `${Math.floor(d.uptime / 60)}m ${Math.floor(d.uptime % 60)}s`;
+        if (uptimeEl) uptimeEl.textContent = formatUptime(d.uptime);
+
         const memEl = document.getElementById("sysStatMemory");
         if (memEl) memEl.textContent = `${d.memory.rssMb} MB (Heap: ${d.memory.heapUsedMb} MB / ${d.memory.heapTotalMb} MB)`;
+
         const nodeEl = document.getElementById("sysStatNode");
         if (nodeEl) nodeEl.textContent = `${d.nodeVersion} (${d.platform} ${d.arch})`;
+
         const botsEl = document.getElementById("sysStatBots");
         if (botsEl) botsEl.textContent = `${d.activeBots} Active / ${d.totalBots} Total`;
       }
 
-      const regRes = await fetch(`${API_BASE}/api/system/regime`);
+      const regRes = await fetch(API_BASE + "/api/system/regime");
       const regJson = await regRes.json();
       if (regJson.ok && regJson.data) {
         const { regime, circuitBreaker, settings } = regJson.data;
         const chkRegime = document.getElementById("chkRegimeGuard");
         const chkMaker = document.getElementById("chkMakerFirst");
         const chkMl = document.getElementById("chkMlFilter");
+        const chkRotate = document.getElementById("chkAutoRotate");
         const inpLoss = document.getElementById("inpMaxDailyLoss");
         const inpExp = document.getElementById("inpMaxCoinExposure");
         const lblRegime = document.getElementById("lblRegimeState");
@@ -1677,6 +1615,7 @@
         if (chkRegime) chkRegime.checked = settings.regime_guard_enabled !== "false";
         if (chkMaker) chkMaker.checked = settings.maker_first_enabled !== "false";
         if (chkMl) chkMl.checked = settings.ml_filter_enabled === "true";
+        if (chkRotate) chkRotate.checked = settings.auto_rotate_enabled !== "false";
         if (inpLoss && settings.max_daily_loss_usd) inpLoss.value = settings.max_daily_loss_usd;
         if (inpExp && settings.max_coin_exposure_pct) inpExp.value = settings.max_coin_exposure_pct;
         if (lblRegime && regime) {
@@ -1695,20 +1634,50 @@
     }
   }
 
+  async function runAutoRotateNow() {
+    const btn = document.getElementById("btnRunAutoRotate");
+    if (!btn) return;
+    btn.disabled = true;
+    btn.textContent = "⏳ Sweeping 13 Markets (Hyperopt)...";
+    try {
+      const res = await fetch(API_BASE + "/api/bots/auto-rotate/run", { method: "POST" });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Rotation failed");
+      const r = json.data;
+      fetchBots();
+      fetchOverview();
+      fetchLogs();
+      alert(
+        `Daily Hyperopt Rotation Complete!\n\n` +
+        `Markets Swept: ${r.marketsEvaluated}\n` +
+        `Deployed/Updated: ${r.deployedBots.join(", ") || "None"}\n` +
+        `Removed (Flat): ${r.removedBots.join(", ") || "None"}\n` +
+        `Kept (Open Position): ${r.keptOpenBots.join(", ") || "None"}`
+      );
+    } catch (err) {
+      alert("Auto-Rotation error: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "🤖 Run Daily Hyperopt Rotation Now";
+    }
+  }
+
   async function saveRiskSettings() {
     const regime_guard_enabled = Boolean(document.getElementById("chkRegimeGuard")?.checked);
     const maker_first_enabled = Boolean(document.getElementById("chkMakerFirst")?.checked);
     const ml_filter_enabled = Boolean(document.getElementById("chkMlFilter")?.checked);
+    const auto_rotate_enabled = Boolean(document.getElementById("chkAutoRotate")?.checked);
     const max_daily_loss_usd = Number(document.getElementById("inpMaxDailyLoss")?.value || 1000);
     const max_coin_exposure_pct = Number(document.getElementById("inpMaxCoinExposure")?.value || 50);
     try {
-      const res = await fetch(`${API_BASE}/api/system/settings`, {
+      const res = await fetch(API_BASE + "/api/system/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           regime_guard_enabled,
           maker_first_enabled,
           ml_filter_enabled,
+          auto_rotate_enabled,
           max_daily_loss_usd,
           max_coin_exposure_pct,
           circuit_breaker_tripped: false,
@@ -1750,7 +1719,7 @@
         },
       };
 
-      const res = await fetch(`${API_BASE}/api/bots/backtest`, {
+      const res = await fetch(API_BASE + "/api/bots/backtest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -1798,7 +1767,7 @@
     btn.disabled = true;
     btn.textContent = "⏳ Sweeping...";
     try {
-      const res = await fetch(`${API_BASE}/api/bots/optimize`, {
+      const res = await fetch(API_BASE + "/api/bots/optimize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1892,7 +1861,7 @@
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/bots`, {
+      const res = await fetch(API_BASE + "/api/bots", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1921,9 +1890,62 @@
     }
   }
 
+  async function handleServiceRestart() {
+    if (!confirm("Are you sure you want to restart the trading engine service? Live WebSocket and trading monitors will reload automatically in a few seconds.")) {
+      return;
+    }
+
+    try {
+      const restartBtn = document.getElementById("btnRestartService");
+      if (restartBtn) {
+        restartBtn.disabled = true;
+        restartBtn.innerHTML = "<span>⏳</span> Restarting...";
+      }
+
+      await fetch(API_BASE + "/api/system/restart", { method: "POST" });
+      closeModal("modalSystemStatus");
+
+      // Disconnect WS while restarting
+      if (ws) {
+        try { ws.close(); } catch (e) {}
+        ws = null;
+      }
+
+      // Poll until health check passes
+      let attempts = 0;
+      const pollTimer = setInterval(async () => {
+        attempts++;
+        try {
+          const res = await fetch(API_BASE + "/api/system/health");
+          if (res.ok) {
+            clearInterval(pollTimer);
+            if (restartBtn) {
+              restartBtn.disabled = false;
+              restartBtn.innerHTML = "<span>🔄</span> Restart";
+            }
+            initWebSocket();
+            fetchOverview();
+            fetchBots();
+            console.log("Trading engine service reconnected successfully.");
+          }
+        } catch (e) {}
+
+        if (attempts > 30) {
+          clearInterval(pollTimer);
+          if (restartBtn) {
+            restartBtn.disabled = false;
+            restartBtn.innerHTML = "<span>🔄</span> Restart";
+          }
+        }
+      }, 1000);
+    } catch (err) {
+      alert("Failed to send restart command: " + err.message);
+    }
+  }
+
   async function loadCoinbaseMarkets() {
     try {
-      const res = await fetch(`${API_BASE}/api/market/coinbase-pairs`);
+      const res = await fetch(API_BASE + "/api/market/coinbase-pairs");
       const json = await res.json();
       if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) return;
 
