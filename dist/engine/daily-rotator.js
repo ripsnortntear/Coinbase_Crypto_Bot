@@ -22,10 +22,47 @@ class DailyRotator {
     interval = null;
     isRunningSweep = false;
     lastReport = null;
+    pendingRotationBotIds = new Set();
     constructor(botRunner, exchangeManager) {
         this.botRunner = botRunner;
         this.exchangeManager = exchangeManager;
         this.optimizer = new optimizer_1.StrategyOptimizer(exchangeManager);
+        this.loadPendingBots();
+    }
+    loadPendingBots() {
+        try {
+            const row = this.db.prepare("SELECT value FROM system_settings WHERE key = 'pending_rotation_bots'").get();
+            if (row?.value) {
+                const arr = JSON.parse(row.value);
+                if (Array.isArray(arr)) {
+                    this.pendingRotationBotIds = new Set(arr.map(String));
+                }
+            }
+        }
+        catch { }
+    }
+    savePendingBots() {
+        try {
+            this.db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('pending_rotation_bots', ?)")
+                .run(JSON.stringify(Array.from(this.pendingRotationBotIds)));
+        }
+        catch { }
+    }
+    isPendingRotation(botId) {
+        return this.pendingRotationBotIds.has(botId);
+    }
+    async onBotClosedPosition(botId) {
+        if (!this.pendingRotationBotIds.has(botId))
+            return;
+        this.pendingRotationBotIds.delete(botId);
+        this.savePendingBots();
+        this.db.prepare(`
+      INSERT INTO system_logs (level, bot_id, message, timestamp)
+      VALUES ('info', ?, '🔄 Pending-rotation bot closed its open position. Re-evaluating fleet via Hyperopt...', ?)
+    `).run(botId, new Date().toISOString());
+        if (!this.isRunningSweep && this.isEnabled()) {
+            await this.runRotation().catch(() => { });
+        }
     }
     static init(botRunner, exchangeManager) {
         if (!DailyRotator.instance) {
@@ -156,8 +193,10 @@ class DailyRotator {
                 // 1. Safely remove non-winning bots ONLY if they have no open asset position on exchange
                 for (const bot of existingBots) {
                     const key = `${bot.symbol}:${bot.strategy_type}`;
-                    if (winnerKeys.has(key))
+                    if (winnerKeys.has(key)) {
+                        this.pendingRotationBotIds.delete(bot.id);
                         continue;
+                    }
                     const baseAsset = String(bot.symbol).split("/")[0];
                     const freeBase = Number(balances[baseAsset]?.free || 0);
                     let assetUsd = 0;
@@ -167,16 +206,19 @@ class DailyRotator {
                     }
                     catch { }
                     if (assetUsd >= 1.5) {
-                        keptOpenBots.push(`${bot.name} (holding $${assetUsd.toFixed(2)} ${baseAsset})`);
+                        this.pendingRotationBotIds.add(bot.id);
+                        keptOpenBots.push(`${bot.name} (holding $${assetUsd.toFixed(2)} ${baseAsset}, queued for rotation on close)`);
                         continue;
                     }
                     // Safe to remove flat underperforming bot & its associated trades/orders
+                    this.pendingRotationBotIds.delete(bot.id);
                     await this.botRunner.stopBot(bot.id);
                     this.db.prepare("DELETE FROM trades WHERE bot_id = ?").run(bot.id);
                     this.db.prepare("DELETE FROM orders WHERE bot_id = ?").run(bot.id);
                     this.db.prepare("DELETE FROM trading_bots WHERE id = ?").run(bot.id);
                     removedBots.push(`${bot.name} (${bot.symbol})`);
                 }
+                this.savePendingBots();
                 // 2. Deploy or update winning bots using available free USD + USDC
                 const freeCash = Number(balances["USD"]?.free || 0) + Number(balances["USDC"]?.free || 0);
                 const perBotCapital = winners.length > 0 ? Math.max(4.0, Number((freeCash / winners.length).toFixed(2))) : 0;

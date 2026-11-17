@@ -4,6 +4,7 @@ exports.BaseStrategy = void 0;
 const database_1 = require("../../db/database");
 const regime_guard_1 = require("../regime-guard");
 const ml_predictor_1 = require("../ml-predictor");
+const daily_rotator_1 = require("../daily-rotator");
 class BaseStrategy {
     bot;
     account;
@@ -40,6 +41,9 @@ class BaseStrategy {
             const panic = this.db.prepare("SELECT value FROM system_settings WHERE key = 'panic_active'").get();
             if (panic && panic.value === "true") {
                 return { allowed: false, reason: "Emergency Panic Stop is ACTIVE" };
+            }
+            if (daily_rotator_1.DailyRotator.getInstance()?.isPendingRotation(this.bot.id)) {
+                return { allowed: false, reason: "Bot is queued for Hyperopt rotation after closing current position" };
             }
         }
         catch { }
@@ -109,6 +113,11 @@ class BaseStrategy {
             price,
             amount,
         });
+        if (side === "sell" && order.status === "filled") {
+            setTimeout(() => {
+                daily_rotator_1.DailyRotator.getInstance()?.onBotClosedPosition(this.bot.id).catch(() => { });
+            }, 1500);
+        }
         return order;
     }
     async cancelOrder(order) {

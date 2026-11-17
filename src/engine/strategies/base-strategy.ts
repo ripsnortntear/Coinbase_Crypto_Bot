@@ -3,6 +3,7 @@ import { ExchangeManager } from "../exchange-manager";
 import { getDatabase } from "../../db/database";
 import { RegimeGuard } from "../regime-guard";
 import { MlPredictor } from "../ml-predictor";
+import { DailyRotator } from "../daily-rotator";
 
 export abstract class BaseStrategy {
   protected bot: TradingBot;
@@ -47,6 +48,9 @@ export abstract class BaseStrategy {
       const panic = this.db.prepare("SELECT value FROM system_settings WHERE key = 'panic_active'").get() as { value: string } | undefined;
       if (panic && panic.value === "true") {
         return { allowed: false, reason: "Emergency Panic Stop is ACTIVE" };
+      }
+      if (DailyRotator.getInstance()?.isPendingRotation(this.bot.id)) {
+        return { allowed: false, reason: "Bot is queued for Hyperopt rotation after closing current position" };
       }
     } catch {}
 
@@ -126,6 +130,12 @@ export abstract class BaseStrategy {
       price,
       amount,
     });
+
+    if (side === "sell" && order.status === "filled") {
+      setTimeout(() => {
+        DailyRotator.getInstance()?.onBotClosedPosition(this.bot.id).catch(() => {});
+      }, 1500);
+    }
 
     return order;
   }
