@@ -144,15 +144,15 @@ class DailyRotator {
         try {
             const pairs = await this.getTop13LiquidMarkets();
             const candidates = [];
-            // Sweep both DCA and Bollinger across the 13 most liquid Coinbase markets (240 x 1h = 10 days)
+            // Sweep DCA, Bollinger, and Momentum RSI across the 13 most liquid Coinbase markets (300 x 1h = 12.5 days)
             for (const symbol of pairs) {
-                for (const strategyType of ["dca", "bollinger"]) {
+                for (const strategyType of ["dca", "bollinger", "momentum_rsi"]) {
                     try {
                         const res = await this.optimizer.optimize({
                             symbol,
                             strategyType,
                             timeframe: "1h",
-                            candleLimit: 240,
+                            candleLimit: 300,
                             initialCapital: 1000,
                             executionMode: "maker",
                         });
@@ -233,14 +233,24 @@ class DailyRotator {
                             takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 2.5)),
                             trailingTakeProfitPercentage: Number(w.config.trailingTakeProfitPercentage || 0) || undefined,
                         }
-                        : {
-                            period: 20,
-                            stdDev: 2,
-                            timeframe: "1h",
-                            orderAmount: Math.max(2.0, Number((perBotCapital * 0.5).toFixed(2))),
-                            takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 4.0)),
-                            stopLossPercentage: 6.0,
-                        };
+                        : w.strategyType === "momentum_rsi"
+                            ? {
+                                rsiPeriod: 14,
+                                rsiOversold: 30,
+                                rsiOverbought: 70,
+                                timeframe: "1h",
+                                orderAmount: Math.max(2.0, Number((perBotCapital * 0.5).toFixed(2))),
+                                takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 3.0)),
+                                stopLossPercentage: 6.0,
+                            }
+                            : {
+                                period: 20,
+                                stdDev: 2,
+                                timeframe: "1h",
+                                orderAmount: Math.max(2.0, Number((perBotCapital * 0.5).toFixed(2))),
+                                takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 4.0)),
+                                stopLossPercentage: 6.0,
+                            };
                     if (existing) {
                         this.db.prepare("UPDATE trading_bots SET config_json = ?, updated_at = datetime('now') WHERE id = ?")
                             .run(JSON.stringify(botConfig), existing.id);
@@ -252,7 +262,8 @@ class DailyRotator {
                     else if (freeCash >= 4.0) {
                         const botId = `bot-${crypto_1.default.randomUUID()}`;
                         const base = w.symbol.split("/")[0];
-                        const name = `Auto ${base} ${w.strategyType === "dca" ? "DCA" : "Bollinger"}`;
+                        const stratLabel = w.strategyType === "dca" ? "DCA" : w.strategyType === "momentum_rsi" ? "RSI" : "Bollinger";
+                        const name = `Auto ${base} ${stratLabel}`;
                         const now = new Date().toISOString();
                         this.db.prepare(`
               INSERT INTO trading_bots (
