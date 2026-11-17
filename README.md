@@ -15,7 +15,7 @@
 <br/>
 
 [**📖 Explore Wiki Documentation**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/wiki) •
-[**📦 Download Latest Release (v1.1.0)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
+[**📦 Download Latest Release (v1.2.0)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
 [**🐛 Report Issue**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues) •
 [**✨ Request Feature**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues)
 
@@ -35,7 +35,7 @@ Most crypto bots are bloated, require external databases (MySQL, Postgres, Redis
 
 | 🚀 Zero Dependencies | 🛡️ Coinbase Fee Shield & Risk Guards | 🧪 Backtester & Hyperopt | 🤖 Continuous ML & Visual Canvas |
 | :--- | :--- | :--- | :--- |
-| **No MariaDB, Postgres, or Redis.** Powered by Node.js 22 **`node:sqlite`**. Native 1-click wizards for **Windows & Linux**. | **2.0% Take-Profit guard**, **Maker-First** (`postOnly`) execution, **24h Circuit Breaker**, **Per-Coin Exposure Caps**, and **Fear & Greed Regime Guard**. | Zero-look-ahead historical **Backtester** + 36-combo **Auto-Optimizer** (`Hyperopt`) with Sharpe, Win Rate & Max Drawdown. | **15-min online Logistic Regression** retraining, **Portfolio Rebalancer**, **Market Maker**, **🎨 Visual Canvas**, and **Hot-Swappable Plugins**. |
+| **No MariaDB, Postgres, or Redis.** Powered by Node.js 22 **`node:sqlite`**. Supports **all 400+ active Coinbase `/USD` markets** with native 1-click wizards for **Windows & Linux**. | **2.0% Take-Profit guard**, **Maker-First** (`postOnly`) execution, **24h Circuit Breaker**, **Per-Coin Exposure Caps**, and **Fear & Greed Regime Guard**. | Zero-look-ahead historical **Backtester**, 36-combo **Hyperopt**, and **Daily 24h Auto-Rotator** across the top 13 liquid markets with **Open-Position Protection**. | **15-min online Logistic Regression** retraining, **Portfolio Rebalancer**, **Market Maker**, **🎨 Visual Canvas**, and **Hot-Swappable Plugins**. |
 
 ---
 
