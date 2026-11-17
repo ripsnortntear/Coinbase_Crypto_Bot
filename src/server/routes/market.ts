@@ -5,20 +5,79 @@ const POPULAR_SYMBOLS = [
   "ETH/USD",
   "BTC/USD",
   "SOL/USD",
-  "BTC/USDT",
-  "ETH/USDT",
-  "SOL/USDT",
-  "DOGE/USD",
   "XRP/USD",
-  "ADA/USD",
+  "HYPE/USD",
+  "ZEC/USD",
+  "ICP/USD",
+  "LIGHTER/USD",
+  "AERO/USD",
+  "NEAR/USD",
+  "DOGE/USD",
+  "SUI/USD",
   "AVAX/USD",
+  "LINK/USD",
+  "UNI/USD",
+  "AAVE/USD",
+  "ADA/USD",
+  "LTC/USD",
+  "VVV/USD",
+  "QNT/USD",
+  "XLM/USD",
+  "PEPE/USD",
+  "SHIB/USD",
+  "BONK/USD",
+  "TAO/USD",
+  "APT/USD",
+  "INJ/USD",
+  "ARB/USD",
+  "OP/USD",
+  "BCH/USD",
 ];
+
+const STABLE_BASES = new Set(["USDT", "USDC", "DAI", "PYUSD", "TUSD", "USDP", "GUSD", "EURC", "FDUSD"]);
+let cachedCoinbasePairs: { data: any[]; ts: number } | null = null;
 
 export function createMarketRouter(exchangeManager: ExchangeManager): Router {
   const router = Router();
 
   router.get("/symbols", (req: Request, res: Response) => {
     res.json({ ok: true, data: POPULAR_SYMBOLS });
+  });
+
+  // Dynamically discover ALL active volatile spot /USD markets on Coinbase
+  router.get("/coinbase-pairs", async (req: Request, res: Response) => {
+    try {
+      const now = Date.now();
+      if (cachedCoinbasePairs && now - cachedCoinbasePairs.ts < 5 * 60 * 1000) {
+        return res.json({ ok: true, data: cachedCoinbasePairs.data });
+      }
+
+      const ex = exchangeManager.getPublicExchange("coinbase");
+      const markets = await ex.loadMarkets();
+      const tickers = await ex.fetchTickers();
+
+      const pairs = Object.values(tickers)
+        .filter((t: any) => {
+          if (!t.symbol || !t.symbol.endsWith("/USD")) return false;
+          const base = t.symbol.split("/")[0];
+          if (STABLE_BASES.has(base)) return false;
+          const m = markets[t.symbol];
+          return Boolean(m && m.active && (t.last || 0) > 0);
+        })
+        .map((t: any) => ({
+          symbol: t.symbol,
+          last: t.last || 0,
+          volUsdM: Number(((t.quoteVolume || 0) / 1e6).toFixed(2)),
+          changePct: Number((t.percentage || 0).toFixed(2)),
+        }))
+        .sort((a: any, b: any) => b.volUsdM - a.volUsdM);
+
+      cachedCoinbasePairs = { data: pairs, ts: now };
+      res.json({ ok: true, data: pairs });
+    } catch (err: any) {
+      const fallback = POPULAR_SYMBOLS.map((s) => ({ symbol: s, last: 0, volUsdM: 0, changePct: 0 }));
+      res.json({ ok: true, data: cachedCoinbasePairs?.data || fallback });
+    }
   });
 
   router.get("/ticker", async (req: Request, res: Response) => {

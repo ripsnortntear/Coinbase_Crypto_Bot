@@ -367,6 +367,7 @@
     await Promise.all([
       fetchOverview(),
       fetchTickers(),
+      loadCoinbaseMarkets(),
       fetchBots(),
       fetchOrders(),
       fetchTrades(),
@@ -1917,6 +1918,37 @@
       alert("Visual Canvas Bot deployed! Click Start on the bot card when ready.");
     } catch (err) {
       alert("Failed deploying Canvas Bot: " + err.message);
+    }
+  }
+
+  async function loadCoinbaseMarkets() {
+    try {
+      const res = await fetch(`${API_BASE}/api/market/coinbase-pairs`);
+      const json = await res.json();
+      if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) return;
+
+      const selectIds = ["botSymbol", "btSymbol", "canvasSymbol"];
+      for (const id of selectIds) {
+        const sel = document.getElementById(id);
+        if (!sel) continue;
+        const prevVal = sel.value || "ETH/USD";
+        sel.innerHTML = "";
+        for (const p of json.data) {
+          const opt = document.createElement("option");
+          opt.value = p.symbol;
+          const sign = p.changePct >= 0 ? "+" : "";
+          const volStr = p.volUsdM >= 1 ? `$${p.volUsdM.toFixed(1)}M` : `$${Math.round(p.volUsdM * 1000)}K`;
+          opt.textContent = p.last > 0
+            ? `${p.symbol} (${sign}${p.changePct}% • ${volStr} Vol)`
+            : p.symbol;
+          sel.appendChild(opt);
+        }
+        if (Array.from(sel.options).some((o) => o.value === prevVal)) {
+          sel.value = prevVal;
+        }
+      }
+    } catch (e) {
+      console.warn("Could not load full Coinbase markets list:", e);
     }
   }
 
