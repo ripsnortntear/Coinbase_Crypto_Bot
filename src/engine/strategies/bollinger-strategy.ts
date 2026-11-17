@@ -6,6 +6,7 @@ export class BollingerStrategy extends BaseStrategy {
   private config: BollingerConfig;
   private inPosition = false;
   private entryPrice = 0;
+  private lastBuyErrorTime = 0;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -21,10 +22,19 @@ export class BollingerStrategy extends BaseStrategy {
   }
 
   public async initialize(): Promise<void> {
-    this.log("info", `Bollinger Bands Strategy initialized on ${this.config.timeframe || "5m"}. Period: ${this.config.period || 20}, StdDev: ${this.config.stdDev || 2}`);
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
+    this.log(
+      "info",
+      `Bollinger Bands Strategy initialized on ${this.config.timeframe || "5m"}. Period: ${this.config.period || 20}, StdDev: ${this.config.stdDev || 2}${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`
+    );
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
     if (this.inPosition && this.entryPrice > 0) {
       const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
       if (this.config.takeProfitPercentage && pnlPct >= this.config.takeProfitPercentage) {
@@ -53,7 +63,8 @@ export class BollingerStrategy extends BaseStrategy {
     const lastPrice = closePrices[closePrices.length - 1];
 
     // BUY Signal: Price touches or drops below lower band (oversold mean-reversion)
-    if (!this.inPosition && lastPrice <= currentBB.lower) {
+    const nowTs = Date.now();
+    if (!this.inPosition && lastPrice <= currentBB.lower && nowTs - this.lastBuyErrorTime > 300000) {
       const guard = this.canEnterBuy();
       if (!guard.allowed) {
         this.log("warn", `🛡️ Bollinger BUY paused by Guard: ${guard.reason}`);
@@ -64,6 +75,12 @@ export class BollingerStrategy extends BaseStrategy {
         this.log("warn", `🛡️ Bollinger BUY paused by Exposure Cap: ${expGuard.reason}`);
         return;
       }
+      const cashCheck = await this.hasSufficientCash(this.config.orderAmount);
+      if (!cashCheck.ok) {
+        this.lastBuyErrorTime = nowTs;
+        this.log("warn", `Bollinger BUY skipped: need $${this.config.orderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+        return;
+      }
       this.log("info", `Bollinger BUY Signal: Price $${lastPrice} <= Lower Band $${currentBB.lower.toFixed(2)}`);
       const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
       if (amount > 0) {
@@ -72,7 +89,8 @@ export class BollingerStrategy extends BaseStrategy {
           this.inPosition = true;
           this.entryPrice = lastPrice;
         } catch (err: any) {
-          this.log("error", `Failed executing Bollinger BUY: ${err.message}`);
+          this.lastBuyErrorTime = Date.now();
+          this.log("error", `Failed executing Bollinger BUY (cooling down 5m): ${err.message}`);
         }
       }
     }

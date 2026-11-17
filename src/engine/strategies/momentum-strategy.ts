@@ -6,6 +6,7 @@ export class MomentumStrategy extends BaseStrategy {
   private config: MomentumRsiConfig;
   private inPosition = false;
   private entryPrice = 0;
+  private lastBuyErrorTime = 0;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -22,10 +23,19 @@ export class MomentumStrategy extends BaseStrategy {
   }
 
   public async initialize(): Promise<void> {
-    this.log("info", `Momentum Strategy initialized on ${this.config.timeframe || "5m"} candles. RSI Period: ${this.config.rsiPeriod || 14}`);
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
+    this.log(
+      "info",
+      `Momentum Strategy initialized on ${this.config.timeframe || "5m"} candles. RSI Period: ${this.config.rsiPeriod || 14}${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`
+    );
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    const pos = this.hydratePositionFromDb();
+    this.inPosition = pos.inPosition;
+    this.entryPrice = pos.entryPrice;
     // Check Take Profit or Stop Loss for active position
     if (this.inPosition && this.entryPrice > 0) {
       const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
@@ -60,7 +70,8 @@ export class MomentumStrategy extends BaseStrategy {
     const overbought = this.config.rsiOverbought || 70;
 
     // BUY Signal: RSI dips below oversold and starts turning up
-    if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi) {
+    const nowTs = Date.now();
+    if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi && nowTs - this.lastBuyErrorTime > 300000) {
       const guard = this.canEnterBuy();
       if (!guard.allowed) {
         this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
@@ -71,6 +82,12 @@ export class MomentumStrategy extends BaseStrategy {
         this.log("warn", `🛡️ Momentum BUY paused by Exposure Cap: ${expGuard.reason}`);
         return;
       }
+      const cashCheck = await this.hasSufficientCash(this.config.orderAmount);
+      if (!cashCheck.ok) {
+        this.lastBuyErrorTime = nowTs;
+        this.log("warn", `Momentum BUY skipped: need $${this.config.orderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+        return;
+      }
       this.log("info", `BUY Signal: RSI oversold rebound (${prevRsi.toFixed(1)} -> ${currentRsi.toFixed(1)}) at $${lastPrice}`);
       const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
       if (amount > 0) {
@@ -79,7 +96,8 @@ export class MomentumStrategy extends BaseStrategy {
           this.inPosition = true;
           this.entryPrice = lastPrice;
         } catch (err: any) {
-          this.log("error", `Failed executing Momentum BUY: ${err.message}`);
+          this.lastBuyErrorTime = Date.now();
+          this.log("error", `Failed executing Momentum BUY (cooling down 5m): ${err.message}`);
         }
       }
     }

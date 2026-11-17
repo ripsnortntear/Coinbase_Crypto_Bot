@@ -10,6 +10,7 @@ export class DcaStrategy extends BaseStrategy {
   private lastBalanceCheck = 0;
   private lastTpErrorTime = 0;
   private lastSlErrorTime = 0;
+  private lastSoErrorTime = 0;
   private trailingArmed = false;
   private peakPrice = 0;
   private lastGuardLogTime = 0;
@@ -312,8 +313,15 @@ export class DcaStrategy extends BaseStrategy {
       referencePrice > 0 &&
       ticker.last <= referencePrice * (1 - this.config.priceDropPercentage / 100) &&
       this.safetyOrdersPlaced < effectiveMaxSafety &&
-      openOrders.length === 0
+      openOrders.length === 0 &&
+      nowTs - this.lastSoErrorTime > 300000
     ) {
+      const cashCheck = await this.hasSufficientCash(this.config.safetyOrderAmount);
+      if (!cashCheck.ok) {
+        this.lastSoErrorTime = nowTs;
+        this.log("warn", `DCA safety order paused: need $${this.config.safetyOrderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+        return;
+      }
       const safetyAmount = Number((this.config.safetyOrderAmount / ticker.last).toFixed(5));
       if (safetyAmount > 0) {
         this.isPlacingOrder = true;
@@ -326,7 +334,8 @@ export class DcaStrategy extends BaseStrategy {
           this.lastBuyPrice = ticker.last;
           this.safetyOrdersPlaced += 1;
         } catch (err: any) {
-          this.log("error", `Failed placing safety order: ${err.message}`);
+          this.lastSoErrorTime = Date.now();
+          this.log("error", `Failed placing safety order (cooling down 5m): ${err.message}`);
         } finally {
           this.isPlacingOrder = false;
         }

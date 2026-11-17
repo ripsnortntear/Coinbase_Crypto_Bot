@@ -70,6 +70,46 @@ class BaseStrategy {
         catch { }
         return { allowed: true };
     }
+    hydratePositionFromDb() {
+        try {
+            const lastSell = this.db.prepare(`
+        SELECT MAX(timestamp) as lastSellTime FROM trades WHERE bot_id = ? AND side = 'sell'
+      `).get(this.bot.id);
+            const activeBuys = lastSell && lastSell.lastSellTime
+                ? this.db.prepare(`
+            SELECT price, amount, cost FROM trades WHERE bot_id = ? AND side = 'buy' AND timestamp > ?
+          `).all(this.bot.id, lastSell.lastSellTime)
+                : this.db.prepare(`
+            SELECT price, amount, cost FROM trades WHERE bot_id = ? AND side = 'buy'
+          `).all(this.bot.id);
+            let totalAmount = 0;
+            let totalCost = 0;
+            for (const b of activeBuys) {
+                totalAmount += b.amount;
+                totalCost += b.cost;
+            }
+            totalAmount = Math.max(0, Number(totalAmount.toFixed(6)));
+            const entryPrice = totalAmount > 0 ? totalCost / totalAmount : 0;
+            return { inPosition: totalAmount > 0.00005, entryPrice, totalAmount };
+        }
+        catch {
+            return { inPosition: false, entryPrice: 0, totalAmount: 0 };
+        }
+    }
+    async hasSufficientCash(requiredUsd) {
+        if (this.account.is_paper === 1)
+            return { ok: true, availableUsd: requiredUsd };
+        try {
+            const balances = await this.exchangeManager.fetchBalances(this.account);
+            const freeUsd = Number(balances["USD"]?.free || 0);
+            const freeUsdc = Number(balances["USDC"]?.free || 0);
+            const bestSingle = Math.max(freeUsd, freeUsdc);
+            return { ok: bestSingle >= requiredUsd * 1.01, availableUsd: Number(bestSingle.toFixed(2)) };
+        }
+        catch {
+            return { ok: true, availableUsd: requiredUsd };
+        }
+    }
     async checkExposureCap() {
         try {
             const row = this.db.prepare("SELECT value FROM system_settings WHERE key = 'max_coin_exposure_pct'").get();

@@ -7,6 +7,7 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
     config;
     inPosition = false;
     entryPrice = 0;
+    lastBuyErrorTime = 0;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -21,9 +22,15 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
         };
     }
     async initialize() {
-        this.log("info", `Momentum Strategy initialized on ${this.config.timeframe || "5m"} candles. RSI Period: ${this.config.rsiPeriod || 14}`);
+        const pos = this.hydratePositionFromDb();
+        this.inPosition = pos.inPosition;
+        this.entryPrice = pos.entryPrice;
+        this.log("info", `Momentum Strategy initialized on ${this.config.timeframe || "5m"} candles. RSI Period: ${this.config.rsiPeriod || 14}${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`);
     }
     async onTick(ticker) {
+        const pos = this.hydratePositionFromDb();
+        this.inPosition = pos.inPosition;
+        this.entryPrice = pos.entryPrice;
         // Check Take Profit or Stop Loss for active position
         if (this.inPosition && this.entryPrice > 0) {
             const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
@@ -54,7 +61,8 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
         const oversold = this.config.rsiOversold || 30;
         const overbought = this.config.rsiOverbought || 70;
         // BUY Signal: RSI dips below oversold and starts turning up
-        if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi) {
+        const nowTs = Date.now();
+        if (!this.inPosition && prevRsi <= oversold && currentRsi > prevRsi && nowTs - this.lastBuyErrorTime > 300000) {
             const guard = this.canEnterBuy();
             if (!guard.allowed) {
                 this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
@@ -63,6 +71,12 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
             const expGuard = await this.checkExposureCap();
             if (!expGuard.allowed) {
                 this.log("warn", `🛡️ Momentum BUY paused by Exposure Cap: ${expGuard.reason}`);
+                return;
+            }
+            const cashCheck = await this.hasSufficientCash(this.config.orderAmount);
+            if (!cashCheck.ok) {
+                this.lastBuyErrorTime = nowTs;
+                this.log("warn", `Momentum BUY skipped: need $${this.config.orderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
                 return;
             }
             this.log("info", `BUY Signal: RSI oversold rebound (${prevRsi.toFixed(1)} -> ${currentRsi.toFixed(1)}) at $${lastPrice}`);
@@ -74,7 +88,8 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
                     this.entryPrice = lastPrice;
                 }
                 catch (err) {
-                    this.log("error", `Failed executing Momentum BUY: ${err.message}`);
+                    this.lastBuyErrorTime = Date.now();
+                    this.log("error", `Failed executing Momentum BUY (cooling down 5m): ${err.message}`);
                 }
             }
         }
