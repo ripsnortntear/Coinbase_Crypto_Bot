@@ -17,6 +17,7 @@ const custom_rule_strategy_1 = require("./strategies/custom-rule-strategy");
 const strategy_plugins_1 = require("./strategy-plugins");
 const ml_predictor_1 = require("./ml-predictor");
 const regime_guard_1 = require("./regime-guard");
+const daily_rotator_1 = require("./daily-rotator");
 class BotRunner extends events_1.default {
     db = (0, database_1.getDatabase)();
     exchangeManager;
@@ -58,6 +59,8 @@ class BotRunner extends events_1.default {
         // Continuous ML Retraining Loop (initial at 6s, then every 15 minutes)
         setTimeout(() => this.retrainMlModels(), 6000);
         this.mlInterval = setInterval(() => this.retrainMlModels(), 15 * 60 * 1000);
+        // Daily 24h Hyperopt Fleet Rotator
+        daily_rotator_1.DailyRotator.init(this, this.exchangeManager).start();
         console.log(`[BotRunner] Trading engine active with ${this.activeStrategies.size} running bots.`);
     }
     stop() {
@@ -71,6 +74,7 @@ class BotRunner extends events_1.default {
         if (this.mlInterval)
             clearInterval(this.mlInterval);
         regime_guard_1.RegimeGuard.getInstance()?.stop();
+        daily_rotator_1.DailyRotator.getInstance()?.stop();
         this.activeStrategies.clear();
         console.log("[BotRunner] Trading engine stopped.");
     }

@@ -10,6 +10,7 @@ const database_1 = require("../../db/database");
 const backtester_1 = require("../../engine/backtester");
 const optimizer_1 = require("../../engine/optimizer");
 const strategy_plugins_1 = require("../../engine/strategy-plugins");
+const daily_rotator_1 = require("../../engine/daily-rotator");
 function createBotsRouter(botRunner) {
     const router = (0, express_1.Router)();
     const db = (0, database_1.getDatabase)();
@@ -211,6 +212,29 @@ function createBotsRouter(botRunner) {
     router.post("/plugins/reload", (req, res) => {
         const loaded = strategy_plugins_1.StrategyPluginLoader.loadAll();
         res.json({ ok: true, data: loaded, message: `Reloaded ${loaded.length} strategy plugin(s)` });
+    });
+    // Daily 24h Hyperopt Fleet Rotator
+    router.get("/auto-rotate/status", (req, res) => {
+        const rotator = daily_rotator_1.DailyRotator.getInstance();
+        res.json({
+            ok: true,
+            data: {
+                enabled: rotator ? rotator.isEnabled() : false,
+                lastReport: rotator ? rotator.getLastReport() : null,
+            },
+        });
+    });
+    router.post("/auto-rotate/run", async (req, res) => {
+        try {
+            const rotator = daily_rotator_1.DailyRotator.getInstance();
+            if (!rotator)
+                return res.status(503).json({ ok: false, error: "DailyRotator not initialized" });
+            const report = await rotator.runRotation();
+            res.json({ ok: true, data: report });
+        }
+        catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
     });
     // Delete bot
     router.delete("/:id", async (req, res) => {

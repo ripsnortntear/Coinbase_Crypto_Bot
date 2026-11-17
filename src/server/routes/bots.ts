@@ -5,6 +5,7 @@ import { BotRunner } from "../../engine/bot-runner";
 import { Backtester } from "../../engine/backtester";
 import { StrategyOptimizer } from "../../engine/optimizer";
 import { StrategyPluginLoader } from "../../engine/strategy-plugins";
+import { DailyRotator } from "../../engine/daily-rotator";
 
 export function createBotsRouter(botRunner: BotRunner): Router {
   const router = Router();
@@ -237,6 +238,29 @@ export function createBotsRouter(botRunner: BotRunner): Router {
   router.post("/plugins/reload", (req: Request, res: Response) => {
     const loaded = StrategyPluginLoader.loadAll();
     res.json({ ok: true, data: loaded, message: `Reloaded ${loaded.length} strategy plugin(s)` });
+  });
+
+  // Daily 24h Hyperopt Fleet Rotator
+  router.get("/auto-rotate/status", (req: Request, res: Response) => {
+    const rotator = DailyRotator.getInstance();
+    res.json({
+      ok: true,
+      data: {
+        enabled: rotator ? rotator.isEnabled() : false,
+        lastReport: rotator ? rotator.getLastReport() : null,
+      },
+    });
+  });
+
+  router.post("/auto-rotate/run", async (req: Request, res: Response) => {
+    try {
+      const rotator = DailyRotator.getInstance();
+      if (!rotator) return res.status(503).json({ ok: false, error: "DailyRotator not initialized" });
+      const report = await rotator.runRotation();
+      res.json({ ok: true, data: report });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
   });
 
   // Delete bot

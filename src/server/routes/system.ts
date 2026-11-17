@@ -231,6 +231,7 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
         circuit_breaker_tripped,
         ml_filter_enabled,
         max_coin_exposure_pct,
+        auto_rotate_enabled,
       } = req.body || {};
       const upsert = db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)");
       if (regime_guard_enabled !== undefined) {
@@ -250,6 +251,9 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
       }
       if (max_coin_exposure_pct !== undefined && Number(max_coin_exposure_pct) > 0 && Number(max_coin_exposure_pct) <= 100) {
         upsert.run("max_coin_exposure_pct", String(Number(max_coin_exposure_pct)));
+      }
+      if (auto_rotate_enabled !== undefined) {
+        upsert.run("auto_rotate_enabled", String(Boolean(auto_rotate_enabled)));
       }
       db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Risk & execution settings updated by administrator', ?)").run(new Date().toISOString());
       res.json({ ok: true, message: "Settings updated" });

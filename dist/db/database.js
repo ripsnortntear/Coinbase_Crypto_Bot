@@ -133,6 +133,8 @@ function initSchema(db) {
         ["maker_first_enabled", "true"],
         ["ml_filter_enabled", "false"],
         ["max_coin_exposure_pct", "50"],
+        ["auto_rotate_enabled", "true"],
+        ["last_auto_rotate_ts", String(Date.now())],
     ];
     const insertSetting = db.prepare("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)");
     for (const [k, v] of defaultSettings) {

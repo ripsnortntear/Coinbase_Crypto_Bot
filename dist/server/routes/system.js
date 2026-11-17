@@ -216,7 +216,7 @@ function createSystemRouter(botRunner, exchangeManager) {
     });
     router.post("/settings", (req, res) => {
         try {
-            const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped, ml_filter_enabled, max_coin_exposure_pct, } = req.body || {};
+            const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped, ml_filter_enabled, max_coin_exposure_pct, auto_rotate_enabled, } = req.body || {};
             const upsert = db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)");
             if (regime_guard_enabled !== undefined) {
                 upsert.run("regime_guard_enabled", String(Boolean(regime_guard_enabled)));
@@ -235,6 +235,9 @@ function createSystemRouter(botRunner, exchangeManager) {
             }
             if (max_coin_exposure_pct !== undefined && Number(max_coin_exposure_pct) > 0 && Number(max_coin_exposure_pct) <= 100) {
                 upsert.run("max_coin_exposure_pct", String(Number(max_coin_exposure_pct)));
+            }
+            if (auto_rotate_enabled !== undefined) {
+                upsert.run("auto_rotate_enabled", String(Boolean(auto_rotate_enabled)));
             }
             db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Risk & execution settings updated by administrator', ?)").run(new Date().toISOString());
             res.json({ ok: true, message: "Settings updated" });

@@ -14,6 +14,7 @@ import { CustomRuleStrategy } from "./strategies/custom-rule-strategy";
 import { StrategyPluginLoader } from "./strategy-plugins";
 import { MlPredictor } from "./ml-predictor";
 import { RegimeGuard } from "./regime-guard";
+import { DailyRotator } from "./daily-rotator";
 
 export class BotRunner extends EventEmitter {
   private db = getDatabase();
@@ -66,6 +67,9 @@ export class BotRunner extends EventEmitter {
     setTimeout(() => this.retrainMlModels(), 6000);
     this.mlInterval = setInterval(() => this.retrainMlModels(), 15 * 60 * 1000);
 
+    // Daily 24h Hyperopt Fleet Rotator
+    DailyRotator.init(this, this.exchangeManager).start();
+
     console.log(`[BotRunner] Trading engine active with ${this.activeStrategies.size} running bots.`);
   }
 
@@ -76,6 +80,7 @@ export class BotRunner extends EventEmitter {
     if (this.reconcileInterval) clearInterval(this.reconcileInterval);
     if (this.mlInterval) clearInterval(this.mlInterval);
     RegimeGuard.getInstance()?.stop();
+    DailyRotator.getInstance()?.stop();
     this.activeStrategies.clear();
     console.log("[BotRunner] Trading engine stopped.");
   }
