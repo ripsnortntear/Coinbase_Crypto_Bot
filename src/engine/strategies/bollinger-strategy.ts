@@ -76,10 +76,14 @@ export class BollingerStrategy extends BaseStrategy {
         }
       }
     }
-    // Reversion Target reached: Price touches middle or upper band
-    else if (this.inPosition && lastPrice >= currentBB.middle) {
-      this.log("info", `Bollinger Mean Reversion Target: Price $${lastPrice} >= Middle Band $${currentBB.middle.toFixed(2)}`);
-      await this.closePosition(lastPrice);
+    // Reversion Target reached: Price touches middle/upper band AND clears Fee Shield TP
+    else if (this.inPosition) {
+      const minTpPct = Math.max(2.0, Number(this.config.takeProfitPercentage || 2.5));
+      const minTpPrice = this.entryPrice > 0 ? this.entryPrice * (1 + minTpPct / 100) : 0;
+      if (lastPrice >= currentBB.middle && lastPrice >= minTpPrice) {
+        this.log("info", `Bollinger Mean Reversion Target: Price $${lastPrice} >= Middle Band $${currentBB.middle.toFixed(2)} (TP +${minTpPct}%)`);
+        await this.closePosition(lastPrice);
+      }
     }
   }
 

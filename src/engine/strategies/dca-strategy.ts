@@ -155,7 +155,7 @@ export class DcaStrategy extends BaseStrategy {
           if (ticker.last > this.peakPrice) {
             this.peakPrice = ticker.last;
           }
-          const trailStop = Math.max(tpTarget * 0.999, this.peakPrice * (1 - trailPct / 100));
+          const trailStop = Math.max(tpTarget, this.peakPrice * (1 - trailPct / 100));
           if (ticker.last <= trailStop) {
             shouldTakeProfit = true;
           }
@@ -322,7 +322,7 @@ export class DcaStrategy extends BaseStrategy {
             "info",
             `DCA safety order ${this.safetyOrdersPlaced + 1}/${effectiveMaxSafety} triggered at $${ticker.last}`
           );
-          await this.placeOrder("buy", "market", ticker.last, safetyAmount);
+          await this.placeOrder("buy", "market", ticker.last, safetyAmount, true);
           this.lastBuyPrice = ticker.last;
           this.safetyOrdersPlaced += 1;
         } catch (err: any) {
