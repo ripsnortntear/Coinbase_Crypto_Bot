@@ -148,12 +148,14 @@ Access the dashboard at `http://localhost:29600`.
 
 Coinbase uses Cloud Developer Platform (CDP) API keys for Advanced Trade:
 
-1. **Create API Key:** Visit [portal.cdp.coinbase.com/api-keys/secret](https://portal.cdp.coinbase.com/api-keys/secret).
+1. **Create API Key:** Visit [portal.cdp.coinbase.com/api-keys/secret](https://portal.cdp.coinbase.com/api-keys/secret) and click **Create API Key**.
 2. **Set Permissions:**
    * ✅ **View** (Read balance & tickers)
    * ✅ **Trade** (Execute market & limit orders)
    * ❌ **NEVER check Transfer or Withdraw** (Keep your capital safe!)
-3. **Download Key File:** Coinbase prompts you to download **`cdp_api_key.json`**.
+3. **Download Key File:** Click **Create & Download** (or **Download JSON**) — Coinbase saves **`cdp_api_key.json`** to your browser's `Downloads` folder (`%USERPROFILE%\Downloads\` on Windows or `~/Downloads/` on Linux/macOS).
+   * *Note:* Coinbase only lets you download `cdp_api_key.json` **once** at creation time. If you closed the popup without saving it, simply create a new API key.
+   * *Alternative:* If you already copied the **API Key Name** (`organizations/.../apiKeys/...`) and **Private Key** (`-----BEGIN EC PRIVATE KEY-----...`), you can paste them directly into **+ Add Exchange** in the web dashboard instead.
 
 > [!IMPORTANT]
 > **1-Click Auto-Detection:** Drop `cdp_api_key.json` directly into the `Coinbase_Crypto_Bot/` directory before running `setup.sh` or `setup.bat`. The wizard will **automatically detect and load** your key name and secret private key without any manual copy-pasting!
