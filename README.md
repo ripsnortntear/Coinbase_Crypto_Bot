@@ -148,7 +148,7 @@ Access the dashboard at `http://localhost:29600`.
 
 Coinbase uses Cloud Developer Platform (CDP) API keys for Advanced Trade:
 
-1. **Create API Key:** Visit [portal.cdp.coinbase.com/access/api](https://portal.cdp.coinbase.com/access/api).
+1. **Create API Key:** Visit [portal.cdp.coinbase.com/api-keys/secret](https://portal.cdp.coinbase.com/api-keys/secret).
 2. **Set Permissions:**
    * ✅ **View** (Read balance & tickers)
    * ✅ **Trade** (Execute market & limit orders)

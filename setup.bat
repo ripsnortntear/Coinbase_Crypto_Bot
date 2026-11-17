@@ -92,7 +92,7 @@ echo.
 echo ==================================================================
 echo         HOW TO GET YOUR COINBASE ADVANCED TRADE API KEYS
 echo ==================================================================
-echo 1. Visit: https://portal.cdp.coinbase.com/access/api
+echo 1. Visit: https://portal.cdp.coinbase.com/api-keys/secret
 echo 2. Click [Create API Key], check [View] and [Trade]
 echo    (NEVER check Transfer or Withdraw)
 echo 3. Save the downloaded 'cdp_api_key.json' file or copy the keys.
