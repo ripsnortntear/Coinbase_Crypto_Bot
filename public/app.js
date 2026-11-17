@@ -1,4 +1,4 @@
-// OldsmarChaos Crypto Trading Dashboard Client Application
+// Coinbase Crypto Bot Crypto Trading Dashboard Client Application
 (function () {
   let chart = null;
   let candleSeries = null;

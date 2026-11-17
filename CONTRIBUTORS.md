@@ -6,7 +6,7 @@ The **Coinbase Crypto Bot** is an autonomous cryptocurrency algorithmic trading 
 
 ## 🏆 Core Creators & Maintainers
 
-### 👑 **ripsnortntear (OldsmarChaos)**
+### 👑 **ripsnortntear**
 * **Role:** Project Lead, Chief Architect & Quantitative Trader
 * **Contributions:**
   * Core vision, strategy architecture, and domain modeling.
