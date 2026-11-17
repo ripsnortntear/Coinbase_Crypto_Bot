@@ -4,17 +4,18 @@
 ### Autonomous • Fee-Shielded • Zero-Dependency Algorithmic Trading Terminal
 
 [![GitHub Release](https://img.shields.io/github/v/release/ripsnortntear/Coinbase_Crypto_Bot?style=for-the-badge&logo=github&color=7c3aed)](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/ripsnortntear/Coinbase_Crypto_Bot/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI%20Tests)](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-v22+-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Database](https://img.shields.io/badge/Database-Embedded%20node%3Asqlite-003B57?style=for-the-badge&logo=sqlite&logoColor=white)](https://nodejs.org/api/sqlite.html)
 [![Coinbase CDP](https://img.shields.io/badge/Coinbase-Advanced%20Trade%20CDP-0052FF?style=for-the-badge&logo=coinbase&logoColor=white)](https://portal.cdp.coinbase.com/)
-[![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20Docker-blue?style=for-the-badge)](#-platform-support)
+[![Platforms](https://img.shields.io/badge/Platforms-Linux%20%7C%20Windows%20%7C%20Docker-blue?style=for-the-badge)](#-quickstart-installation)
 [![License](https://img.shields.io/github/license/ripsnortntear/Coinbase_Crypto_Bot?style=for-the-badge&color=059669)](LICENSE)
 
 <br/>
 
 [**📖 Explore Wiki Documentation**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/wiki) •
-[**📦 Download Latest Release (v1.0.0)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
+[**📦 Download Latest Release (v1.1.0)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
 [**🐛 Report Issue**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues) •
 [**✨ Request Feature**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues)
 
@@ -32,9 +33,9 @@ Most crypto bots are bloated, require external databases (MySQL, Postgres, Redis
 
 **Coinbase Crypto Bot is built different:**
 
-| 🚀 Zero Dependencies | 🛡️ Coinbase Fee Shield | ⚖️ Dynamic Capital Sizing | 🪟 Cross-Platform |
+| 🚀 Zero Dependencies | 🛡️ Coinbase Fee Shield & Risk Guards | 🧪 Backtester & Hyperopt | 🤖 Continuous ML & Visual Canvas |
 | :--- | :--- | :--- | :--- |
-| **No MariaDB, Postgres, or Redis.** Powered by Node.js 22's built-in **`node:sqlite`**. No C++ compilers needed. | Enforces a **2.0% Take-Profit guard** so your gains don't get eaten by Coinbase's 1.8% round-trip taker fees. | Auto-polls live cash equity; sizes base orders (**25%**) & safety orders (**20%**) dynamically. | Native 1-click wizards for **Windows 10/11/Server** and **any Linux distro / Raspberry Pi**. |
+| **No MariaDB, Postgres, or Redis.** Powered by Node.js 22 **`node:sqlite`**. Native 1-click wizards for **Windows & Linux**. | **2.0% Take-Profit guard**, **Maker-First** (`postOnly`) execution, **24h Circuit Breaker**, **Per-Coin Exposure Caps**, and **Fear & Greed Regime Guard**. | Zero-look-ahead historical **Backtester** + 36-combo **Auto-Optimizer** (`Hyperopt`) with Sharpe, Win Rate & Max Drawdown. | **15-min online Logistic Regression** retraining, **Portfolio Rebalancer**, **Market Maker**, **🎨 Visual Canvas**, and **Hot-Swappable Plugins**. |
 
 ---
 
@@ -50,9 +51,10 @@ flowchart TD
         SVR["Embedded Express 5 & WS Server<br/>(Port 29600)"]
         AUTH["Scrypt Security & AES-256-GCM"]
         DB[("Embedded SQLite<br/>data/trading.db")]
-        RUNNER["BotRunner Strategy Coordinator"]
-        STRAT["Strategies: DCA • Grid • Bollinger • Momentum<br/>🛡️ 2.0% Fee Shield"]
-        CCXT["CCXT Trading Layer"]
+        GUARD["🛡️ Regime Guard (F&G + BTC Vol)<br/>🤖 Continuous ML & Circuit Breaker"]
+        RUNNER["BotRunner • Backtester • Hyperopt"]
+        STRAT["DCA (Trailing TP) • Grid • Market Maker<br/>Rebalancer • 🎨 Visual Canvas • Plugins"]
+        CCXT["CCXT Hybrid Maker-First Layer"]
     end
 
     subgraph Coinbase["☁️ Coinbase Cloud"]
@@ -63,6 +65,7 @@ flowchart TD
     SVR <--> AUTH
     SVR <--> DB
     SVR <--> RUNNER
+    RUNNER <--> GUARD
     RUNNER <--> STRAT
     RUNNER <--> CCXT
     CCXT <-->|"CDP Ed25519 / EC-PEM"| CB
@@ -166,6 +169,7 @@ Coinbase uses Cloud Developer Platform (CDP) API keys for Advanced Trade:
 | **Check Health & Status** | `./status.sh` | `status.bat` | Displays PID, CPU/RAM, port, and health response. |
 | **Restart Service** | `./restart.sh` | `stop.bat` & `start.bat` | Gracefully cycles the trading engine. |
 | **Stop Engine** | `./stop.sh` | `stop.bat` | Sends clean SIGTERM / shutdown signal. |
+| **Run Test Suite** | `npm test` | `npm test` | Runs unit tests for Fee Shield, Backtester, Optimizer & ML. |
 
 ---
 
