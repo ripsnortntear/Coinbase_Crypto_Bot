@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { getDatabase } from "../../db/database";
 import { BotRunner } from "../../engine/bot-runner";
 import { Backtester } from "../../engine/backtester";
+import { StrategyOptimizer } from "../../engine/optimizer";
+import { StrategyPluginLoader } from "../../engine/strategy-plugins";
 
 export function createBotsRouter(botRunner: BotRunner): Router {
   const router = Router();
@@ -203,6 +205,38 @@ export function createBotsRouter(botRunner: BotRunner): Router {
     } catch (err: any) {
       res.status(500).json({ ok: false, error: err.message });
     }
+  });
+
+  // Auto-Optimizer (Hyperopt Sweep)
+  router.post("/optimize", async (req: Request, res: Response) => {
+    try {
+      const { symbol, strategy_type, timeframe, candle_limit, initial_capital, execution_mode } = req.body || {};
+      if (!symbol || !strategy_type) {
+        return res.status(400).json({ ok: false, error: "symbol and strategy_type are required" });
+      }
+      const optimizer = new StrategyOptimizer(botRunner.getExchangeManager());
+      const result = await optimizer.optimize({
+        symbol: String(symbol).toUpperCase(),
+        strategyType: strategy_type,
+        timeframe: String(timeframe || "1h"),
+        candleLimit: Number(candle_limit || 300),
+        initialCapital: Number(initial_capital || 1000),
+        executionMode: execution_mode === "taker" ? "taker" : "maker",
+      });
+      res.json({ ok: true, data: result });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
+  // Hot-Swappable Strategy Plugins
+  router.get("/plugins", (req: Request, res: Response) => {
+    res.json({ ok: true, data: StrategyPluginLoader.list() });
+  });
+
+  router.post("/plugins/reload", (req: Request, res: Response) => {
+    const loaded = StrategyPluginLoader.loadAll();
+    res.json({ ok: true, data: loaded, message: `Reloaded ${loaded.length} strategy plugin(s)` });
   });
 
   // Delete bot

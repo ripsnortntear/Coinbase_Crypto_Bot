@@ -1079,7 +1079,11 @@
 
     // Modals
     document.getElementById("btnBacktest")?.addEventListener("click", () => openModal("modalBacktest"));
+    document.getElementById("btnCanvas")?.addEventListener("click", openCanvasModal);
+    document.getElementById("btnAddCanvasNode")?.addEventListener("click", () => addCanvasNodeRow());
+    document.getElementById("btnDeployCanvas")?.addEventListener("click", deployCanvasBot);
     document.getElementById("btnRunBacktest")?.addEventListener("click", runBacktest);
+    document.getElementById("btnRunOptimize")?.addEventListener("click", runOptimize);
     document.getElementById("btnSaveRiskSettings")?.addEventListener("click", saveRiskSettings);
     document.getElementById("btnSystemStatus")?.addEventListener("click", openSystemStatusModal);
     document.getElementById("btnNewBot")?.addEventListener("click", () => {
@@ -1663,13 +1667,17 @@
         const { regime, circuitBreaker, settings } = regJson.data;
         const chkRegime = document.getElementById("chkRegimeGuard");
         const chkMaker = document.getElementById("chkMakerFirst");
+        const chkMl = document.getElementById("chkMlFilter");
         const inpLoss = document.getElementById("inpMaxDailyLoss");
+        const inpExp = document.getElementById("inpMaxCoinExposure");
         const lblRegime = document.getElementById("lblRegimeState");
         const lblCb = document.getElementById("sysStatCircuitBreaker");
 
         if (chkRegime) chkRegime.checked = settings.regime_guard_enabled !== "false";
         if (chkMaker) chkMaker.checked = settings.maker_first_enabled !== "false";
+        if (chkMl) chkMl.checked = settings.ml_filter_enabled === "true";
         if (inpLoss && settings.max_daily_loss_usd) inpLoss.value = settings.max_daily_loss_usd;
+        if (inpExp && settings.max_coin_exposure_pct) inpExp.value = settings.max_coin_exposure_pct;
         if (lblRegime && regime) {
           lblRegime.textContent = `${regime.regime} (F&G ${regime.fngValue})`;
           lblRegime.style.color = regime.regime === "CRASH_RISK" ? "#ef4444" : regime.regime === "CAUTION" ? "#facc15" : "#10b981";
@@ -1689,7 +1697,9 @@
   async function saveRiskSettings() {
     const regime_guard_enabled = Boolean(document.getElementById("chkRegimeGuard")?.checked);
     const maker_first_enabled = Boolean(document.getElementById("chkMakerFirst")?.checked);
+    const ml_filter_enabled = Boolean(document.getElementById("chkMlFilter")?.checked);
     const max_daily_loss_usd = Number(document.getElementById("inpMaxDailyLoss")?.value || 1000);
+    const max_coin_exposure_pct = Number(document.getElementById("inpMaxCoinExposure")?.value || 50);
     try {
       const res = await fetch(`${API_BASE}/api/system/settings`, {
         method: "POST",
@@ -1697,7 +1707,9 @@
         body: JSON.stringify({
           regime_guard_enabled,
           maker_first_enabled,
+          ml_filter_enabled,
           max_daily_loss_usd,
+          max_coin_exposure_pct,
           circuit_breaker_tripped: false,
         }),
       });
@@ -1771,7 +1783,140 @@
       alert("Backtest error: " + err.message);
     } finally {
       btn.disabled = false;
-      btn.textContent = "▶ Run Backtest";
+      btn.textContent = "▶ Backtest";
+    }
+  }
+
+  async function runOptimize() {
+    const btn = document.getElementById("btnRunOptimize");
+    const box = document.getElementById("btResultsBox");
+    const grid = document.getElementById("btMetricsGrid");
+    const list = document.getElementById("btTradesList");
+    if (!btn || !box || !grid || !list) return;
+
+    btn.disabled = true;
+    btn.textContent = "⏳ Sweeping...";
+    try {
+      const res = await fetch(`${API_BASE}/api/bots/optimize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          symbol: document.getElementById("btSymbol").value,
+          strategy_type: document.getElementById("btStrategy").value,
+          timeframe: document.getElementById("btTimeframe").value,
+          candle_limit: Number(document.getElementById("btCandles").value || 300),
+          initial_capital: Number(document.getElementById("btCapital").value || 1000),
+          execution_mode: document.getElementById("btExecMode").value,
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Optimization failed");
+
+      const top = json.data.topResults || [];
+      const best = top[0];
+      if (best) {
+        const m = best.metrics;
+        grid.innerHTML = `
+          <div><div style="color:#94a3b8;font-size:0.75rem;">Best Return</div><div style="color:${m.netPnl >= 0 ? "#10b981" : "#ef4444"};font-weight:700;">${m.totalReturnPct}% ($${m.netPnl})</div></div>
+          <div><div style="color:#94a3b8;font-size:0.75rem;">Best TP / Trail</div><div style="color:#c084fc;font-weight:700;">+${best.config.takeProfitPercentage}% / ${best.config.trailingTakeProfitPercentage}%</div></div>
+          <div><div style="color:#94a3b8;font-size:0.75rem;">Win Rate</div><div style="color:#f1f5f9;font-weight:700;">${m.winRate}%</div></div>
+          <div><div style="color:#94a3b8;font-size:0.75rem;">Combos Tested</div><div style="color:#38bdf8;font-weight:700;">${json.data.combinationsTested}</div></div>
+        `;
+      }
+
+      list.innerHTML = top.map((c) => `
+        <div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;justify-content:space-between;align-items:center;">
+          <span>#${c.rank} TP:+${c.config.takeProfitPercentage}% Trail:${c.config.trailingTakeProfitPercentage}% Drop:${c.config.priceDropPercentage}% → <b>${c.metrics.totalReturnPct}%</b> (Sharpe ${c.metrics.sharpeRatio})</span>
+          <button type="button" class="btn btn-secondary" style="padding:2px 8px;font-size:0.72rem;" onclick="document.getElementById('btTp').value=${c.config.takeProfitPercentage};document.getElementById('btTrailTp').value=${c.config.trailingTakeProfitPercentage};">Apply</button>
+        </div>
+      `).join("");
+      box.style.display = "block";
+    } catch (err) {
+      alert("Optimize error: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "⚡ Optimize";
+    }
+  }
+
+  function openCanvasModal() {
+    const list = document.getElementById("canvasNodesList");
+    if (list && list.children.length === 0) {
+      addCanvasNodeRow("RSI", "<", 35);
+      addCanvasNodeRow("ML_PROB", ">=", 55);
+    }
+    openModal("modalCanvas");
+  }
+
+  function addCanvasNodeRow(indicator = "RSI", op = "<", value = 35) {
+    const list = document.getElementById("canvasNodesList");
+    if (!list) return;
+    const row = document.createElement("div");
+    row.className = "canvas-node-row";
+    row.style.cssText = "display:flex;gap:8px;align-items:center;";
+    row.innerHTML = `
+      <select class="input cn-ind" style="flex:2;">
+        <option value="RSI" ${indicator === "RSI" ? "selected" : ""}>RSI (14)</option>
+        <option value="ML_PROB" ${indicator === "ML_PROB" ? "selected" : ""}>ML Bull Prob (%)</option>
+        <option value="PRICE" ${indicator === "PRICE" ? "selected" : ""}>Price ($)</option>
+        <option value="BB_LOWER" ${indicator === "BB_LOWER" ? "selected" : ""}>Bollinger Lower ($)</option>
+        <option value="BB_UPPER" ${indicator === "BB_UPPER" ? "selected" : ""}>Bollinger Upper ($)</option>
+      </select>
+      <select class="input cn-op" style="flex:1;">
+        <option value="<" ${op === "<" ? "selected" : ""}>&lt;</option>
+        <option value="<=" ${op === "<=" ? "selected" : ""}>&lt;=</option>
+        <option value=">" ${op === ">" ? "selected" : ""}>&gt;</option>
+        <option value=">=" ${op === ">=" ? "selected" : ""}>&gt;=</option>
+      </select>
+      <input type="number" step="any" class="input cn-val" value="${value}" style="flex:1;">
+      <button type="button" class="btn btn-secondary" style="padding:4px 8px;" onclick="this.parentElement.remove()">✕</button>
+    `;
+    list.appendChild(row);
+  }
+
+  async function deployCanvasBot() {
+    const accId = state.exchanges?.[0]?.id;
+    if (!accId) {
+      alert("Please connect an exchange account first.");
+      return;
+    }
+    const conditions = Array.from(document.querySelectorAll("#canvasNodesList .canvas-node-row")).map((row) => ({
+      indicator: row.querySelector(".cn-ind").value,
+      op: row.querySelector(".cn-op").value,
+      value: Number(row.querySelector(".cn-val").value || 0),
+    }));
+    if (conditions.length === 0) {
+      alert("Add at least one condition node.");
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE}/api/bots`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: document.getElementById("canvasBotName").value || "Visual Rule Bot",
+          exchange_account_id: accId,
+          symbol: document.getElementById("canvasSymbol").value,
+          strategy_type: "custom_rule",
+          allocated_capital: Number(document.getElementById("canvasOrderUsd").value || 25) * 4,
+          config: {
+            logic: document.getElementById("canvasLogic").value,
+            conditions,
+            orderAmountUsd: Number(document.getElementById("canvasOrderUsd").value || 25),
+            takeProfitPercentage: Math.max(2.0, Number(document.getElementById("canvasTp").value || 2.5)),
+            stopLossPercentage: Number(document.getElementById("canvasSl").value || 0) || undefined,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || "Deploy failed");
+      closeModal("modalCanvas");
+      fetchBots();
+      fetchOverview();
+      alert("Visual Canvas Bot deployed! Click Start on the bot card when ready.");
+    } catch (err) {
+      alert("Failed deploying Canvas Bot: " + err.message);
     }
   }
 

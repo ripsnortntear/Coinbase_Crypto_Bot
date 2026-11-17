@@ -1,4 +1,12 @@
-export type StrategyType = "grid" | "dca" | "momentum_rsi" | "bollinger" | "manual";
+export type StrategyType =
+  | "grid"
+  | "dca"
+  | "momentum_rsi"
+  | "bollinger"
+  | "rebalance"
+  | "market_maker"
+  | "custom_rule"
+  | "manual";
 export type BotStatus = "active" | "paused" | "stopped";
 export type OrderSide = "buy" | "sell";
 export type OrderType = "limit" | "market";
@@ -55,7 +63,42 @@ export interface BollingerConfig {
   stopLossPercentage: number;
 }
 
-export type BotConfig = GridConfig | DcaConfig | MomentumRsiConfig | BollingerConfig | Record<string, any>;
+export interface RebalanceConfig {
+  targets: Record<string, number>; // e.g. { "BTC": 40, "ETH": 40, "USD": 20 }
+  driftThresholdPct: number; // e.g. 3.0
+  checkIntervalMs?: number;
+}
+
+export interface MarketMakerConfig {
+  spreadPct: number; // e.g. 1.2 (0.6% each side to beat maker fees)
+  orderAmountUsd: number;
+  maxInventoryUsd: number;
+  refreshTolerancePct?: number;
+}
+
+export interface VisualRuleCondition {
+  indicator: "RSI" | "PRICE" | "BB_LOWER" | "BB_UPPER" | "ML_PROB";
+  op: "<" | ">" | "<=" | ">=";
+  value: number;
+}
+
+export interface CustomRuleConfig {
+  logic: "AND" | "OR";
+  conditions: VisualRuleCondition[];
+  orderAmountUsd: number;
+  takeProfitPercentage: number;
+  stopLossPercentage?: number;
+}
+
+export type BotConfig =
+  | GridConfig
+  | DcaConfig
+  | MomentumRsiConfig
+  | BollingerConfig
+  | RebalanceConfig
+  | MarketMakerConfig
+  | CustomRuleConfig
+  | Record<string, any>;
 
 export interface TradingBot {
   id: string;

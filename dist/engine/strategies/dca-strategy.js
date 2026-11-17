@@ -105,6 +105,14 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
                 }
                 return;
             }
+            const expGuard = await this.checkExposureCap();
+            if (!expGuard.allowed) {
+                if (nowTs - this.lastGuardLogTime > 300000) {
+                    this.lastGuardLogTime = nowTs;
+                    this.log("warn", `🛡️ Entry paused by Exposure Cap: ${expGuard.reason}`);
+                }
+                return;
+            }
             const amount = Number((this.config.baseOrderAmount / ticker.last).toFixed(5));
             if (amount > 0) {
                 this.isPlacingOrder = true;

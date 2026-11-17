@@ -4,6 +4,7 @@ exports.createSystemRouter = createSystemRouter;
 const express_1 = require("express");
 const database_1 = require("../../db/database");
 const regime_guard_1 = require("../../engine/regime-guard");
+const ml_predictor_1 = require("../../engine/ml-predictor");
 function createSystemRouter(botRunner, exchangeManager) {
     const router = (0, express_1.Router)();
     const db = (0, database_1.getDatabase)();
@@ -205,9 +206,17 @@ function createSystemRouter(botRunner, exchangeManager) {
             res.status(500).json({ ok: false, error: err.message });
         }
     });
+    router.get("/ml", (req, res) => {
+        try {
+            res.json({ ok: true, data: ml_predictor_1.MlPredictor.getInstance().getAllModels() });
+        }
+        catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
     router.post("/settings", (req, res) => {
         try {
-            const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped } = req.body || {};
+            const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped, ml_filter_enabled, max_coin_exposure_pct, } = req.body || {};
             const upsert = db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)");
             if (regime_guard_enabled !== undefined) {
                 upsert.run("regime_guard_enabled", String(Boolean(regime_guard_enabled)));
@@ -220,6 +229,12 @@ function createSystemRouter(botRunner, exchangeManager) {
             }
             if (circuit_breaker_tripped !== undefined) {
                 upsert.run("circuit_breaker_tripped", String(Boolean(circuit_breaker_tripped)));
+            }
+            if (ml_filter_enabled !== undefined) {
+                upsert.run("ml_filter_enabled", String(Boolean(ml_filter_enabled)));
+            }
+            if (max_coin_exposure_pct !== undefined && Number(max_coin_exposure_pct) > 0 && Number(max_coin_exposure_pct) <= 100) {
+                upsert.run("max_coin_exposure_pct", String(Number(max_coin_exposure_pct)));
             }
             db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Risk & execution settings updated by administrator', ?)").run(new Date().toISOString());
             res.json({ ok: true, message: "Settings updated" });

@@ -11,6 +11,11 @@ const grid_strategy_1 = require("./strategies/grid-strategy");
 const dca_strategy_1 = require("./strategies/dca-strategy");
 const momentum_strategy_1 = require("./strategies/momentum-strategy");
 const bollinger_strategy_1 = require("./strategies/bollinger-strategy");
+const rebalance_strategy_1 = require("./strategies/rebalance-strategy");
+const market_maker_strategy_1 = require("./strategies/market-maker-strategy");
+const custom_rule_strategy_1 = require("./strategies/custom-rule-strategy");
+const strategy_plugins_1 = require("./strategy-plugins");
+const ml_predictor_1 = require("./ml-predictor");
 const regime_guard_1 = require("./regime-guard");
 class BotRunner extends events_1.default {
     db = (0, database_1.getDatabase)();
@@ -20,6 +25,7 @@ class BotRunner extends events_1.default {
     loopInterval = null;
     candleInterval = null;
     reconcileInterval = null;
+    mlInterval = null;
     activeSymbols = new Set(["ETH/USD", "BTC/USD", "SOL/USD", "BTC/USDT", "ETH/USDT"]);
     constructor(exchangeManager) {
         super();
@@ -47,6 +53,11 @@ class BotRunner extends events_1.default {
         setTimeout(() => this.reconcileLiveOrders(), 2000);
         // Start Market Regime Guard (Fear & Greed + BTC Volatility)
         regime_guard_1.RegimeGuard.init(this.exchangeManager).start();
+        // Load hot-swappable strategy plugins
+        strategy_plugins_1.StrategyPluginLoader.loadAll();
+        // Continuous ML Retraining Loop (initial at 6s, then every 15 minutes)
+        setTimeout(() => this.retrainMlModels(), 6000);
+        this.mlInterval = setInterval(() => this.retrainMlModels(), 15 * 60 * 1000);
         console.log(`[BotRunner] Trading engine active with ${this.activeStrategies.size} running bots.`);
     }
     stop() {
@@ -57,6 +68,8 @@ class BotRunner extends events_1.default {
             clearInterval(this.candleInterval);
         if (this.reconcileInterval)
             clearInterval(this.reconcileInterval);
+        if (this.mlInterval)
+            clearInterval(this.mlInterval);
         regime_guard_1.RegimeGuard.getInstance()?.stop();
         this.activeStrategies.clear();
         console.log("[BotRunner] Trading engine stopped.");
@@ -82,8 +95,22 @@ class BotRunner extends events_1.default {
             case "bollinger":
                 strategy = new bollinger_strategy_1.BollingerStrategy(bot, account, this.exchangeManager);
                 break;
-            default:
-                return false;
+            case "rebalance":
+                strategy = new rebalance_strategy_1.RebalanceStrategy(bot, account, this.exchangeManager);
+                break;
+            case "market_maker":
+                strategy = new market_maker_strategy_1.MarketMakerStrategy(bot, account, this.exchangeManager);
+                break;
+            case "custom_rule":
+                strategy = new custom_rule_strategy_1.CustomRuleStrategy(bot, account, this.exchangeManager);
+                break;
+            default: {
+                const PluginClass = strategy_plugins_1.StrategyPluginLoader.get(bot.strategy_type);
+                if (!PluginClass)
+                    return false;
+                strategy = new PluginClass(bot, account, this.exchangeManager);
+                break;
+            }
         }
         await strategy.initialize();
         this.activeStrategies.set(bot.id, strategy);
@@ -204,6 +231,18 @@ class BotRunner extends events_1.default {
         }
         catch {
             return { tripped: false, dailyPnl: 0, maxDailyLossUsd: 1000 };
+        }
+    }
+    async retrainMlModels() {
+        const ml = ml_predictor_1.MlPredictor.getInstance();
+        for (const symbol of this.activeSymbols) {
+            try {
+                const candles = await this.exchangeManager.fetchOHLCV(symbol, "1h", 250);
+                if (candles && candles.length >= 60) {
+                    ml.retrain(symbol, candles);
+                }
+            }
+            catch { }
         }
     }
     async reconcileLiveOrders() {

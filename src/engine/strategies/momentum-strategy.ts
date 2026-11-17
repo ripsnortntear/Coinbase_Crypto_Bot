@@ -66,6 +66,11 @@ export class MomentumStrategy extends BaseStrategy {
         this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
         return;
       }
+      const expGuard = await this.checkExposureCap();
+      if (!expGuard.allowed) {
+        this.log("warn", `🛡️ Momentum BUY paused by Exposure Cap: ${expGuard.reason}`);
+        return;
+      }
       this.log("info", `BUY Signal: RSI oversold rebound (${prevRsi.toFixed(1)} -> ${currentRsi.toFixed(1)}) at $${lastPrice}`);
       const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
       if (amount > 0) {

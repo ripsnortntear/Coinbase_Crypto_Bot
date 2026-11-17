@@ -59,6 +59,11 @@ export class BollingerStrategy extends BaseStrategy {
         this.log("warn", `🛡️ Bollinger BUY paused by Guard: ${guard.reason}`);
         return;
       }
+      const expGuard = await this.checkExposureCap();
+      if (!expGuard.allowed) {
+        this.log("warn", `🛡️ Bollinger BUY paused by Exposure Cap: ${expGuard.reason}`);
+        return;
+      }
       this.log("info", `Bollinger BUY Signal: Price $${lastPrice} <= Lower Band $${currentBB.lower.toFixed(2)}`);
       const amount = Number((this.config.orderAmount / lastPrice).toFixed(5));
       if (amount > 0) {

@@ -48,8 +48,11 @@
         <button id="btnNewBot" class="btn btn-primary">
           <span>+</span> Deploy Bot
         </button>
-        <button id="btnBacktest" class="btn btn-secondary" style="border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="Run Historical Strategy Backtest">
+        <button id="btnBacktest" class="btn btn-secondary" style="border-color: rgba(56,189,248,0.4); color: #38bdf8;" title="Run Historical Strategy Backtest & Auto-Optimizer">
           <span>🧪</span> Backtest
+        </button>
+        <button id="btnCanvas" class="btn btn-secondary" style="border-color: rgba(168,85,247,0.4); color: #c084fc;" title="Visual Strategy Canvas Builder">
+          <span>🎨</span> Canvas
         </button>
         <button id="btnSystemStatus" class="btn btn-secondary" title="View Process Uptime, Memory, Regime Guard & Risk Controls">
           <span>📊</span> Status
@@ -883,6 +886,14 @@
             <input type="checkbox" id="chkMakerFirst" checked>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Continuous ML Entry Filter:</span>
+            <input type="checkbox" id="chkMlFilter">
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
+            <span style="color: #cbd5e1;">Max Coin Exposure Cap (%):</span>
+            <input type="number" id="inpMaxCoinExposure" class="input" value="50" min="5" max="100" step="5" style="width: 110px; padding: 4px 8px;">
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 0;">
             <span style="color: #cbd5e1;">Max Daily Loss Circuit Breaker ($):</span>
             <input type="number" id="inpMaxDailyLoss" class="input" value="1000" min="10" step="10" style="width: 110px; padding: 4px 8px;">
           </div>
@@ -960,8 +971,9 @@
             <label>Trailing TP Pullback (%)</label>
             <input type="number" id="btTrailTp" class="input" value="0.35" min="0" step="0.05">
           </div>
-          <div class="form-col" style="display: flex; align-items: flex-end;">
-            <button type="button" id="btnRunBacktest" class="btn btn-primary" style="width: 100%;">▶ Run Backtest</button>
+          <div class="form-col" style="display: flex; align-items: flex-end; gap: 6px;">
+            <button type="button" id="btnRunBacktest" class="btn btn-primary" style="flex: 1;">▶ Backtest</button>
+            <button type="button" id="btnRunOptimize" class="btn btn-secondary" style="flex: 1; border-color: rgba(168,85,247,0.4); color: #c084fc;">⚡ Optimize</button>
           </div>
         </div>
 
@@ -972,6 +984,66 @@
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-secondary" data-close="modalBacktest">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Visual Strategy Canvas (Superalgos-style Rule Builder) -->
+  <div id="modalCanvas" class="modal-backdrop" style="display: none; z-index: 9998;">
+    <div class="modal-card" style="max-width: 680px; width: 95%;">
+      <div class="modal-header">
+        <h3>🎨 Visual Strategy Canvas</h3>
+        <button class="modal-close" data-close="modalCanvas">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px; max-height: 75vh; overflow-y: auto;">
+        <div class="form-row">
+          <div class="form-col">
+            <label>Bot Name</label>
+            <input type="text" id="canvasBotName" class="input" value="Visual Rule Alpha">
+          </div>
+          <div class="form-col">
+            <label>Trading Pair</label>
+            <select id="canvasSymbol" class="input">
+              <option value="ETH/USD" selected>ETH/USD</option>
+              <option value="BTC/USD">BTC/USD</option>
+              <option value="SOL/USD">SOL/USD</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label>Gate Logic</label>
+            <select id="canvasLogic" class="input">
+              <option value="AND" selected>ALL Conditions (AND)</option>
+              <option value="OR">ANY Condition (OR)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top: 14px; padding: 12px; background: rgba(15,23,42,0.75); border: 1px dashed rgba(168,85,247,0.45); border-radius: 8px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <strong style="color: #c084fc;">Condition Nodes → Trigger BUY</strong>
+            <button type="button" id="btnAddCanvasNode" class="btn btn-secondary" style="padding: 4px 10px; font-size: 0.8rem;">+ Add Node</button>
+          </div>
+          <div id="canvasNodesList" style="display: flex; flex-direction: column; gap: 8px;"></div>
+        </div>
+
+        <div class="form-row" style="margin-top: 12px;">
+          <div class="form-col">
+            <label>Order Size ($)</label>
+            <input type="number" id="canvasOrderUsd" class="input" value="25" min="5">
+          </div>
+          <div class="form-col">
+            <label>Take Profit (% min 2.0%)</label>
+            <input type="number" id="canvasTp" class="input" value="2.5" min="2.0" step="0.1">
+          </div>
+          <div class="form-col">
+            <label>Stop Loss (% optional)</label>
+            <input type="number" id="canvasSl" class="input" value="5.0" min="0" step="0.5">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display: flex; justify-content: space-between;">
+        <button type="button" class="btn btn-secondary" data-close="modalCanvas">Cancel</button>
+        <button type="button" id="btnDeployCanvas" class="btn btn-primary">🚀 Deploy Canvas Bot</button>
       </div>
     </div>
   </div>

@@ -131,6 +131,8 @@ function initSchema(db) {
         ["circuit_breaker_tripped", "false"],
         ["regime_guard_enabled", "true"],
         ["maker_first_enabled", "true"],
+        ["ml_filter_enabled", "false"],
+        ["max_coin_exposure_pct", "50"],
     ];
     const insertSetting = db.prepare("INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)");
     for (const [k, v] of defaultSettings) {

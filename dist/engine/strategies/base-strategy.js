@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.BaseStrategy = void 0;
 const database_1 = require("../../db/database");
 const regime_guard_1 = require("../regime-guard");
+const ml_predictor_1 = require("../ml-predictor");
 class BaseStrategy {
     bot;
     account;
@@ -49,6 +50,46 @@ class BaseStrategy {
                 return { allowed: false, reason: res.reason };
             }
         }
+        // Optional Continuous ML Filter
+        try {
+            const mlRow = this.db.prepare("SELECT value FROM system_settings WHERE key = 'ml_filter_enabled'").get();
+            if (mlRow && mlRow.value === "true") {
+                const pred = ml_predictor_1.MlPredictor.getInstance().predict(this.bot.symbol);
+                if (pred.probUp < 0.42) {
+                    return {
+                        allowed: false,
+                        reason: `ML Predictor bearish (${(pred.probUp * 100).toFixed(1)}% up prob, val acc ${pred.accuracy}%)`,
+                    };
+                }
+            }
+        }
+        catch { }
+        return { allowed: true };
+    }
+    async checkExposureCap() {
+        try {
+            const row = this.db.prepare("SELECT value FROM system_settings WHERE key = 'max_coin_exposure_pct'").get();
+            const maxPct = Number(row?.value || 50);
+            if (maxPct >= 100 || maxPct <= 0)
+                return { allowed: true };
+            const baseAsset = this.bot.symbol.split("/")[0];
+            const portfolio = await this.exchangeManager.calculateTotalPortfolioUsd(this.account);
+            if (portfolio.totalUsd <= 0)
+                return { allowed: true };
+            const assetInfo = portfolio.balances[baseAsset];
+            if (!assetInfo || assetInfo.total <= 0)
+                return { allowed: true };
+            const ticker = await this.exchangeManager.fetchTicker(this.bot.symbol, this.account.exchange_id);
+            const assetUsd = assetInfo.total * (ticker.last || 0);
+            const exposurePct = (assetUsd / portfolio.totalUsd) * 100;
+            if (exposurePct >= maxPct) {
+                return {
+                    allowed: false,
+                    reason: `${baseAsset} exposure is ${exposurePct.toFixed(1)}% (cap: ${maxPct}%)`,
+                };
+            }
+        }
+        catch { }
         return { allowed: true };
     }
     async placeOrder(side, type, price, amount, makerFirst = false) {

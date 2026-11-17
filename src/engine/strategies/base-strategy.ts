@@ -2,6 +2,7 @@ import { TradingBot, TickerData, Candle, Order, ExchangeAccount } from "../types
 import { ExchangeManager } from "../exchange-manager";
 import { getDatabase } from "../../db/database";
 import { RegimeGuard } from "../regime-guard";
+import { MlPredictor } from "../ml-predictor";
 
 export abstract class BaseStrategy {
   protected bot: TradingBot;
@@ -56,6 +57,48 @@ export abstract class BaseStrategy {
         return { allowed: false, reason: res.reason };
       }
     }
+
+    // Optional Continuous ML Filter
+    try {
+      const mlRow = this.db.prepare("SELECT value FROM system_settings WHERE key = 'ml_filter_enabled'").get() as { value: string } | undefined;
+      if (mlRow && mlRow.value === "true") {
+        const pred = MlPredictor.getInstance().predict(this.bot.symbol);
+        if (pred.probUp < 0.42) {
+          return {
+            allowed: false,
+            reason: `ML Predictor bearish (${(pred.probUp * 100).toFixed(1)}% up prob, val acc ${pred.accuracy}%)`,
+          };
+        }
+      }
+    } catch {}
+
+    return { allowed: true };
+  }
+
+  protected async checkExposureCap(): Promise<{ allowed: boolean; reason?: string }> {
+    try {
+      const row = this.db.prepare("SELECT value FROM system_settings WHERE key = 'max_coin_exposure_pct'").get() as { value: string } | undefined;
+      const maxPct = Number(row?.value || 50);
+      if (maxPct >= 100 || maxPct <= 0) return { allowed: true };
+
+      const baseAsset = this.bot.symbol.split("/")[0];
+      const portfolio = await this.exchangeManager.calculateTotalPortfolioUsd(this.account);
+      if (portfolio.totalUsd <= 0) return { allowed: true };
+
+      const assetInfo = portfolio.balances[baseAsset];
+      if (!assetInfo || assetInfo.total <= 0) return { allowed: true };
+
+      const ticker = await this.exchangeManager.fetchTicker(this.bot.symbol, this.account.exchange_id);
+      const assetUsd = assetInfo.total * (ticker.last || 0);
+      const exposurePct = (assetUsd / portfolio.totalUsd) * 100;
+
+      if (exposurePct >= maxPct) {
+        return {
+          allowed: false,
+          reason: `${baseAsset} exposure is ${exposurePct.toFixed(1)}% (cap: ${maxPct}%)`,
+        };
+      }
+    } catch {}
     return { allowed: true };
   }
 

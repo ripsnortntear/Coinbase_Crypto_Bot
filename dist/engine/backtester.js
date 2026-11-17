@@ -9,7 +9,9 @@ class Backtester {
     }
     async run(req) {
         const limit = Math.min(720, Math.max(50, Number(req.candleLimit || 300)));
-        const candles = await this.exchangeManager.fetchOHLCV(req.symbol, req.timeframe || "1h", limit);
+        const candles = req.preloadedCandles && req.preloadedCandles.length >= 30
+            ? req.preloadedCandles
+            : await this.exchangeManager.fetchOHLCV(req.symbol, req.timeframe || "1h", limit);
         if (!candles || candles.length < 30) {
             throw new Error(`Insufficient historical candles for ${req.symbol} (${req.timeframe})`);
         }

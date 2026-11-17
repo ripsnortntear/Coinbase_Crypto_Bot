@@ -3,6 +3,7 @@ import { getDatabase } from "../../db/database";
 import { BotRunner } from "../../engine/bot-runner";
 import { ExchangeManager } from "../../engine/exchange-manager";
 import { RegimeGuard } from "../../engine/regime-guard";
+import { MlPredictor } from "../../engine/ml-predictor";
 
 export function createSystemRouter(botRunner: BotRunner, exchangeManager: ExchangeManager): Router {
   const router = Router();
@@ -213,9 +214,24 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
     }
   });
 
+  router.get("/ml", (req: Request, res: Response) => {
+    try {
+      res.json({ ok: true, data: MlPredictor.getInstance().getAllModels() });
+    } catch (err: any) {
+      res.status(500).json({ ok: false, error: err.message });
+    }
+  });
+
   router.post("/settings", (req: Request, res: Response) => {
     try {
-      const { regime_guard_enabled, maker_first_enabled, max_daily_loss_usd, circuit_breaker_tripped } = req.body || {};
+      const {
+        regime_guard_enabled,
+        maker_first_enabled,
+        max_daily_loss_usd,
+        circuit_breaker_tripped,
+        ml_filter_enabled,
+        max_coin_exposure_pct,
+      } = req.body || {};
       const upsert = db.prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES (?, ?)");
       if (regime_guard_enabled !== undefined) {
         upsert.run("regime_guard_enabled", String(Boolean(regime_guard_enabled)));
@@ -228,6 +244,12 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
       }
       if (circuit_breaker_tripped !== undefined) {
         upsert.run("circuit_breaker_tripped", String(Boolean(circuit_breaker_tripped)));
+      }
+      if (ml_filter_enabled !== undefined) {
+        upsert.run("ml_filter_enabled", String(Boolean(ml_filter_enabled)));
+      }
+      if (max_coin_exposure_pct !== undefined && Number(max_coin_exposure_pct) > 0 && Number(max_coin_exposure_pct) <= 100) {
+        upsert.run("max_coin_exposure_pct", String(Number(max_coin_exposure_pct)));
       }
       db.prepare("INSERT INTO system_logs (level, message, timestamp) VALUES ('info', 'Risk & execution settings updated by administrator', ?)").run(new Date().toISOString());
       res.json({ ok: true, message: "Settings updated" });
