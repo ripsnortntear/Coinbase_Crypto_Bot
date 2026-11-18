@@ -382,6 +382,7 @@
     <section class="bottom-panel">
       <div class="tab-bar">
         <button class="tab-btn active" data-tab="tab-orders">Open Orders (<span id="openOrdersCount">0</span>)</button>
+        <button class="tab-btn" data-tab="tab-positions">Open Positions (<span id="openPositionsCount">0</span>)</button>
         <button class="tab-btn" data-tab="tab-trades">Trade History</button>
         <button class="tab-btn" data-tab="tab-tape">⚡ Whale Tape (Time &amp; Sales)</button>
         <button class="tab-btn" data-tab="tab-arb">Cross-Exchange Basis &amp; Arb</button>
@@ -409,6 +410,31 @@
             </thead>
             <tbody id="ordersTableBody">
               <tr><td colspan="10" class="text-center dim">No open orders.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tab: Open Positions -->
+      <div id="tab-positions" class="tab-content">
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Opened</th>
+                <th>Bot</th>
+                <th>Symbol</th>
+                <th>Strategy</th>
+                <th>Amount</th>
+                <th>Avg Entry</th>
+                <th>Current Price</th>
+                <th>Value (USD)</th>
+                <th>Unrealized P&amp;L</th>
+                <th>TP Target</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTableBody">
+              <tr><td colspan="10" class="text-center dim">No open positions.</td></tr>
             </tbody>
           </table>
         </div>

@@ -29,6 +29,91 @@ function createBotsRouter(botRunner) {
             res.status(500).json({ ok: false, error: err.message });
         }
     });
+    // List open coin positions held by bots
+    router.get("/positions", async (_req, res) => {
+        try {
+            const exchangeManager = botRunner.getExchangeManager();
+            const bots = db.prepare(`
+        SELECT b.*, e.exchange_id, e.api_key_enc, e.api_secret_enc, e.passphrase_enc, e.is_paper
+        FROM trading_bots b
+        JOIN exchange_accounts e ON b.exchange_account_id = e.id
+        ORDER BY b.created_at DESC
+      `).all();
+            const balanceCache = new Map();
+            const positions = [];
+            for (const bot of bots) {
+                const lastSell = db
+                    .prepare("SELECT MAX(timestamp) as ts FROM trades WHERE bot_id = ? AND side = 'sell'")
+                    .get(bot.id);
+                const buys = lastSell?.ts
+                    ? db
+                        .prepare("SELECT price, amount, cost, timestamp FROM trades WHERE bot_id = ? AND side = 'buy' AND timestamp > ? ORDER BY timestamp ASC")
+                        .all(bot.id, lastSell.ts)
+                    : db
+                        .prepare("SELECT price, amount, cost, timestamp FROM trades WHERE bot_id = ? AND side = 'buy' ORDER BY timestamp ASC")
+                        .all(bot.id);
+                const dbAmount = buys.reduce((s, b) => s + Number(b.amount || 0), 0);
+                const dbCost = buys.reduce((s, b) => s + Number(b.cost || 0), 0);
+                if (dbAmount <= 0.00005)
+                    continue;
+                let balances = balanceCache.get(bot.exchange_account_id);
+                if (!balances) {
+                    try {
+                        balances = await exchangeManager.fetchBalances(bot, false);
+                        balanceCache.set(bot.exchange_account_id, balances);
+                    }
+                    catch {
+                        balances = {};
+                    }
+                }
+                const baseAsset = String(bot.symbol).split("/")[0];
+                const exTotal = Number(balances[baseAsset]?.total ?? dbAmount);
+                const effectiveAmount = exTotal > 0.00005 ? Math.min(dbAmount, exTotal) : 0;
+                if (effectiveAmount <= 0.00005)
+                    continue;
+                let currentPrice = buys[buys.length - 1]?.price || 0;
+                try {
+                    const ticker = await exchangeManager.fetchTicker(bot.symbol, bot.exchange_id);
+                    if (ticker?.last > 0)
+                        currentPrice = ticker.last;
+                }
+                catch { }
+                const avgEntry = dbCost / dbAmount;
+                const valueUsd = effectiveAmount * currentPrice;
+                if (valueUsd < 0.5)
+                    continue;
+                const costBasis = effectiveAmount * avgEntry;
+                const unrealizedPnl = valueUsd - costBasis;
+                const unrealizedPnlPct = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+                let tpPct = 2.5;
+                try {
+                    const cfg = JSON.parse(bot.config_json || "{}");
+                    tpPct = Math.max(2.0, Number(cfg.takeProfitPercentage ?? cfg.takeProfitPercent ?? 2.5));
+                }
+                catch { }
+                positions.push({
+                    botId: bot.id,
+                    botName: bot.name,
+                    symbol: bot.symbol,
+                    strategyType: bot.strategy_type,
+                    status: bot.status,
+                    amount: Number(effectiveAmount.toFixed(6)),
+                    avgEntry: Number(avgEntry.toFixed(4)),
+                    currentPrice: Number(currentPrice.toFixed(4)),
+                    valueUsd: Number(valueUsd.toFixed(2)),
+                    unrealizedPnl: Number(unrealizedPnl.toFixed(2)),
+                    unrealizedPnlPct: Number(unrealizedPnlPct.toFixed(2)),
+                    takeProfitPct: tpPct,
+                    tpTargetPrice: Number((avgEntry * (1 + tpPct / 100)).toFixed(4)),
+                    openedAt: buys[0]?.timestamp || bot.updated_at,
+                });
+            }
+            res.json({ ok: true, data: positions });
+        }
+        catch (err) {
+            res.status(500).json({ ok: false, error: err.message });
+        }
+    });
     // Create new bot
     router.post("/", async (req, res) => {
         try {

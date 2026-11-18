@@ -244,6 +244,7 @@
       }
     } else if (msg.type === "trade") {
       fetchOrders();
+      fetchPositions();
       fetchTrades();
       fetchOverview();
       fetchBots();
@@ -251,6 +252,7 @@
       fetchBots();
       fetchOverview();
       fetchOrders();
+      fetchPositions();
     }
   }
 
@@ -336,6 +338,7 @@
       loadCoinbaseMarkets(),
       fetchBots(),
       fetchOrders(),
+      fetchPositions(),
       fetchTrades(),
       fetchExchanges(),
       fetchLogs(),
@@ -626,6 +629,45 @@
       `).join("");
 
       tbody.querySelectorAll(".btn-cancel-order").forEach(b => b.addEventListener("click", () => handleCancelOrder(b.dataset.id)));
+    } catch (err) {}
+  }
+
+  async function fetchPositions() {
+    try {
+      const res = await fetch(API_BASE + "/api/bots/positions");
+      const json = await res.json();
+      if (!json.ok) return;
+
+      const positions = Array.isArray(json.data) ? json.data : [];
+      const countEl = document.getElementById("openPositionsCount");
+      if (countEl) countEl.textContent = positions.length;
+
+      const tbody = document.getElementById("positionsTableBody");
+      if (!tbody) return;
+
+      if (positions.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center dim">No open positions.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = positions.map(p => {
+        const pnlCls = p.unrealizedPnl >= 0 ? "positive" : "negative";
+        const pnlSign = p.unrealizedPnl >= 0 ? "+" : "";
+        return `
+          <tr>
+            <td class="dim">${formatTime(p.openedAt)}</td>
+            <td>${escapeHtml(p.botName)}</td>
+            <td><strong>${escapeHtml(p.symbol)}</strong></td>
+            <td><span class="badge">${escapeHtml(String(p.strategyType).toUpperCase())}</span></td>
+            <td>${p.amount}</td>
+            <td>$${Number(p.avgEntry).toFixed(4)}</td>
+            <td>$${Number(p.currentPrice).toFixed(4)}</td>
+            <td>$${Number(p.valueUsd).toFixed(2)}</td>
+            <td class="${pnlCls}"><strong>${pnlSign}$${Number(p.unrealizedPnl).toFixed(2)} (${pnlSign}${Number(p.unrealizedPnlPct).toFixed(2)}%)</strong></td>
+            <td class="dim">$${Number(p.tpTargetPrice).toFixed(4)} (+${p.takeProfitPct}%)</td>
+          </tr>
+        `;
+      }).join("");
     } catch (err) {}
   }
 
@@ -985,6 +1027,7 @@
         document.getElementById(targetId)?.classList.add("active");
 
         if (targetId === "tab-orders") fetchOrders();
+        else if (targetId === "tab-positions") fetchPositions();
         else if (targetId === "tab-trades") fetchTrades();
         else if (targetId === "tab-tape") renderTape();
         else if (targetId === "tab-arb") renderArbMatrix(quantState.lastPrice);
