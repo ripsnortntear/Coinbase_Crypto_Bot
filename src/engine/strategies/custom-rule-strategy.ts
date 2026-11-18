@@ -9,6 +9,7 @@ export class CustomRuleStrategy extends BaseStrategy {
   private entryPrice = 0;
   private lastBuyErrorTime = 0;
   private lastStopLossTime = 0;
+  private isPlacingOrder = false;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -43,25 +44,37 @@ export class CustomRuleStrategy extends BaseStrategy {
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    if (this.isPlacingOrder) return;
     const pos = this.hydratePositionFromDb();
     this.inPosition = pos.inPosition;
     this.entryPrice = pos.entryPrice;
     if (!this.inPosition || this.entryPrice <= 0) return;
 
     if (ticker.last >= this.entryPrice * (1 + this.config.takeProfitPercentage / 100)) {
-      await this.closePosition(ticker.last, "Visual Rule Take-Profit");
+      this.isPlacingOrder = true;
+      try {
+        await this.closePosition(ticker.last, "Visual Rule Take-Profit");
+      } finally {
+        this.isPlacingOrder = false;
+      }
     } else if (
       this.config.stopLossPercentage &&
       ticker.last <= this.entryPrice * (1 - this.config.stopLossPercentage / 100)
     ) {
-      this.lastStopLossTime = Date.now();
-      await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
+      this.isPlacingOrder = true;
+      try {
+        this.lastStopLossTime = Date.now();
+        await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
+      } finally {
+        this.isPlacingOrder = false;
+      }
     }
   }
 
   public async onCandle(candles: Candle[]): Promise<void> {
     const nowTs = Date.now();
     if (
+      this.isPlacingOrder ||
       this.inPosition ||
       candles.length < 25 ||
       this.config.conditions.length === 0 ||

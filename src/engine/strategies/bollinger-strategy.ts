@@ -9,6 +9,7 @@ export class BollingerStrategy extends BaseStrategy {
   private lastBuyErrorTime = 0;
   private lastStopLossTime = 0;
   private lastSlCooldownLogTime = 0;
+  private isPlacingOrder = false;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -34,23 +35,35 @@ export class BollingerStrategy extends BaseStrategy {
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    if (this.isPlacingOrder) return;
     const pos = this.hydratePositionFromDb();
     this.inPosition = pos.inPosition;
     this.entryPrice = pos.entryPrice;
     if (this.inPosition && this.entryPrice > 0) {
       const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
       if (this.config.takeProfitPercentage && pnlPct >= this.config.takeProfitPercentage) {
-        this.log("info", `Bollinger Take-Profit reached (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
-        await this.closePosition(ticker.last);
+        this.isPlacingOrder = true;
+        try {
+          this.log("info", `Bollinger Take-Profit reached (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+          await this.closePosition(ticker.last);
+        } finally {
+          this.isPlacingOrder = false;
+        }
       } else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-        this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
-        this.lastStopLossTime = Date.now();
-        await this.closePosition(ticker.last);
+        this.isPlacingOrder = true;
+        try {
+          this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+          this.lastStopLossTime = Date.now();
+          await this.closePosition(ticker.last);
+        } finally {
+          this.isPlacingOrder = false;
+        }
       }
     }
   }
 
   public async onCandle(candles: Candle[]): Promise<void> {
+    if (this.isPlacingOrder) return;
     const period = this.config.period || 20;
     if (candles.length < period + 5) return;
 

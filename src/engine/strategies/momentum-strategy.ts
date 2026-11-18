@@ -9,6 +9,7 @@ export class MomentumStrategy extends BaseStrategy {
   private lastBuyErrorTime = 0;
   private lastStopLossTime = 0;
   private lastSlCooldownLogTime = 0;
+  private isPlacingOrder = false;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -35,6 +36,7 @@ export class MomentumStrategy extends BaseStrategy {
   }
 
   public async onTick(ticker: TickerData): Promise<void> {
+    if (this.isPlacingOrder) return;
     const pos = this.hydratePositionFromDb();
     this.inPosition = pos.inPosition;
     this.entryPrice = pos.entryPrice;
@@ -43,17 +45,28 @@ export class MomentumStrategy extends BaseStrategy {
       const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
 
       if (this.config.takeProfitPercentage && pnlPct >= this.config.takeProfitPercentage) {
-        this.log("info", `Momentum Take-Profit hit (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
-        await this.closePosition(ticker.last);
+        this.isPlacingOrder = true;
+        try {
+          this.log("info", `Momentum Take-Profit hit (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+          await this.closePosition(ticker.last);
+        } finally {
+          this.isPlacingOrder = false;
+        }
       } else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-        this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
-        this.lastStopLossTime = Date.now();
-        await this.closePosition(ticker.last);
+        this.isPlacingOrder = true;
+        try {
+          this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+          this.lastStopLossTime = Date.now();
+          await this.closePosition(ticker.last);
+        } finally {
+          this.isPlacingOrder = false;
+        }
       }
     }
   }
 
   public async onCandle(candles: Candle[]): Promise<void> {
+    if (this.isPlacingOrder) return;
     if (candles.length < 25) return;
 
     const closePrices = candles.map((c) => c.close);

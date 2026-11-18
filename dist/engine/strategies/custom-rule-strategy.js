@@ -10,6 +10,7 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
     entryPrice = 0;
     lastBuyErrorTime = 0;
     lastStopLossTime = 0;
+    isPlacingOrder = false;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -37,23 +38,38 @@ class CustomRuleStrategy extends base_strategy_1.BaseStrategy {
         }
     }
     async onTick(ticker) {
+        if (this.isPlacingOrder)
+            return;
         const pos = this.hydratePositionFromDb();
         this.inPosition = pos.inPosition;
         this.entryPrice = pos.entryPrice;
         if (!this.inPosition || this.entryPrice <= 0)
             return;
         if (ticker.last >= this.entryPrice * (1 + this.config.takeProfitPercentage / 100)) {
-            await this.closePosition(ticker.last, "Visual Rule Take-Profit");
+            this.isPlacingOrder = true;
+            try {
+                await this.closePosition(ticker.last, "Visual Rule Take-Profit");
+            }
+            finally {
+                this.isPlacingOrder = false;
+            }
         }
         else if (this.config.stopLossPercentage &&
             ticker.last <= this.entryPrice * (1 - this.config.stopLossPercentage / 100)) {
-            this.lastStopLossTime = Date.now();
-            await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
+            this.isPlacingOrder = true;
+            try {
+                this.lastStopLossTime = Date.now();
+                await this.closePosition(ticker.last, "Visual Rule Stop-Loss");
+            }
+            finally {
+                this.isPlacingOrder = false;
+            }
         }
     }
     async onCandle(candles) {
         const nowTs = Date.now();
-        if (this.inPosition ||
+        if (this.isPlacingOrder ||
+            this.inPosition ||
             candles.length < 25 ||
             this.config.conditions.length === 0 ||
             nowTs - this.lastBuyErrorTime <= 300000 ||

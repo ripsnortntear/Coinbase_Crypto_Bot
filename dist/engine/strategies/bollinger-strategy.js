@@ -10,6 +10,7 @@ class BollingerStrategy extends base_strategy_1.BaseStrategy {
     lastBuyErrorTime = 0;
     lastStopLossTime = 0;
     lastSlCooldownLogTime = 0;
+    isPlacingOrder = false;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -29,23 +30,39 @@ class BollingerStrategy extends base_strategy_1.BaseStrategy {
         this.log("info", `Bollinger Bands Strategy initialized on ${this.config.timeframe || "5m"}. Period: ${this.config.period || 20}, StdDev: ${this.config.stdDev || 2}${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`);
     }
     async onTick(ticker) {
+        if (this.isPlacingOrder)
+            return;
         const pos = this.hydratePositionFromDb();
         this.inPosition = pos.inPosition;
         this.entryPrice = pos.entryPrice;
         if (this.inPosition && this.entryPrice > 0) {
             const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
             if (this.config.takeProfitPercentage && pnlPct >= this.config.takeProfitPercentage) {
-                this.log("info", `Bollinger Take-Profit reached (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
-                await this.closePosition(ticker.last);
+                this.isPlacingOrder = true;
+                try {
+                    this.log("info", `Bollinger Take-Profit reached (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+                    await this.closePosition(ticker.last);
+                }
+                finally {
+                    this.isPlacingOrder = false;
+                }
             }
             else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-                this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
-                this.lastStopLossTime = Date.now();
-                await this.closePosition(ticker.last);
+                this.isPlacingOrder = true;
+                try {
+                    this.log("warn", `Bollinger Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+                    this.lastStopLossTime = Date.now();
+                    await this.closePosition(ticker.last);
+                }
+                finally {
+                    this.isPlacingOrder = false;
+                }
             }
         }
     }
     async onCandle(candles) {
+        if (this.isPlacingOrder)
+            return;
         const period = this.config.period || 20;
         if (candles.length < period + 5)
             return;

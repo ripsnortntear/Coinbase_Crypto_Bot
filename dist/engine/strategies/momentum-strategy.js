@@ -10,6 +10,7 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
     lastBuyErrorTime = 0;
     lastStopLossTime = 0;
     lastSlCooldownLogTime = 0;
+    isPlacingOrder = false;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
         const raw = JSON.parse(bot.config_json || "{}");
@@ -30,6 +31,8 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
         this.log("info", `Momentum Strategy initialized on ${this.config.timeframe || "5m"} candles. RSI Period: ${this.config.rsiPeriod || 14}${this.inPosition ? ` | Hydrated open position @ $${this.entryPrice.toFixed(4)}` : ""}`);
     }
     async onTick(ticker) {
+        if (this.isPlacingOrder)
+            return;
         const pos = this.hydratePositionFromDb();
         this.inPosition = pos.inPosition;
         this.entryPrice = pos.entryPrice;
@@ -37,17 +40,31 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
         if (this.inPosition && this.entryPrice > 0) {
             const pnlPct = ((ticker.last - this.entryPrice) / this.entryPrice) * 100;
             if (this.config.takeProfitPercentage && pnlPct >= this.config.takeProfitPercentage) {
-                this.log("info", `Momentum Take-Profit hit (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
-                await this.closePosition(ticker.last);
+                this.isPlacingOrder = true;
+                try {
+                    this.log("info", `Momentum Take-Profit hit (+${pnlPct.toFixed(2)}%) at $${ticker.last}`);
+                    await this.closePosition(ticker.last);
+                }
+                finally {
+                    this.isPlacingOrder = false;
+                }
             }
             else if (this.config.stopLossPercentage && pnlPct <= -this.config.stopLossPercentage) {
-                this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
-                this.lastStopLossTime = Date.now();
-                await this.closePosition(ticker.last);
+                this.isPlacingOrder = true;
+                try {
+                    this.log("warn", `Momentum Stop-Loss hit (${pnlPct.toFixed(2)}%) at $${ticker.last} — cooling down 60m before re-entry.`);
+                    this.lastStopLossTime = Date.now();
+                    await this.closePosition(ticker.last);
+                }
+                finally {
+                    this.isPlacingOrder = false;
+                }
             }
         }
     }
     async onCandle(candles) {
+        if (this.isPlacingOrder)
+            return;
         if (candles.length < 25)
             return;
         const closePrices = candles.map((c) => c.close);
