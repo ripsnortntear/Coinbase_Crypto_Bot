@@ -38,7 +38,7 @@
 
   function formatTime(str) {
     const d = parseUtcDate(str);
-    return isNaN(d.getTime()) ? "--:--:--" : d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+    return isNaN(d.getTime()) ? "--:--:--" : d.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit", second: "2-digit" });
   }
 
   document.addEventListener("DOMContentLoaded", () => {
@@ -83,10 +83,24 @@
       rightPriceScale: {
         borderColor: "rgba(255, 255, 255, 0.08)",
       },
+      localization: {
+        timeFormatter: (time) => new Date(time * 1000).toLocaleString("en-US", {
+          timeZone: "America/New_York",
+          month: "short",
+          day: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+        }),
+      },
       timeScale: {
         borderColor: "rgba(255, 255, 255, 0.08)",
         timeVisible: true,
         secondsVisible: false,
+        tickMarkFormatter: (time) => new Date(time * 1000).toLocaleTimeString("en-US", {
+          timeZone: "America/New_York",
+          hour: "numeric",
+          minute: "2-digit",
+        }),
       },
     });
 
@@ -1411,7 +1425,12 @@
     body.innerHTML = quantState.tapeTrades.map((t, idx) => {
       const isLatest = idx === 0 && latestTrade;
       const flashClass = isLatest ? (t.side === "buy" ? "flash-buy" : "flash-sell") : "";
-      const timeStr = t.time.toISOString().split("T")[1].replace("Z", "");
+      const timeStr = t.time.toLocaleTimeString("en-US", {
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+      });
 
       return `
         <tr class="tape-row ${flashClass}">
@@ -1780,7 +1799,7 @@
       `;
 
       const tradesHtml = json.data.trades.map((t) => {
-        const dt = new Date(t.timestamp).toLocaleString();
+        const dt = new Date(t.timestamp).toLocaleString("en-US", { timeZone: "America/New_York" });
         const sideCol = t.side === "buy" ? "#38bdf8" : t.realizedPnl >= 0 ? "#10b981" : "#ef4444";
         const pnlStr = t.side === "sell" ? ` | PnL: ${t.realizedPnl >= 0 ? "+" : ""}$${t.realizedPnl.toFixed(2)}` : "";
         return `<div style="padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
