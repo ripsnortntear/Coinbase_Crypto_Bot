@@ -34,7 +34,7 @@ function createBotsRouter(botRunner) {
         try {
             const exchangeManager = botRunner.getExchangeManager();
             const bots = db.prepare(`
-        SELECT b.*, e.exchange_id, e.api_key_enc, e.api_secret_enc, e.passphrase_enc, e.is_paper
+        SELECT b.*, e.exchange_id, e.api_key_encrypted, e.api_secret_encrypted, e.passphrase_encrypted, e.is_paper
         FROM trading_bots b
         JOIN exchange_accounts e ON b.exchange_account_id = e.id
         ORDER BY b.created_at DESC
