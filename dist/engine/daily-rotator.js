@@ -130,10 +130,11 @@ class DailyRotator {
     start() {
         if (this.interval)
             return;
-        // Check once per hour whether 24h have elapsed since last rotation
+        // Check every 30s for scheduled EST/New_York volatility-window rotation slots:
+        // 2:55 AM, 8:25 AM, 9:25 AM, 2:55 PM, 6:55 PM, 7:55 PM America/New_York
         this.interval = setInterval(() => {
             this.checkAndRunIfDue().catch(() => { });
-        }, 60 * 60 * 1000);
+        }, 30 * 1000);
     }
     stop() {
         if (this.interval) {
@@ -153,15 +154,38 @@ class DailyRotator {
     getLastReport() {
         return this.lastReport;
     }
+    getEasternSlotKey(now = new Date()) {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/New_York",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+        }).formatToParts(now);
+        const get = (type) => parts.find((p) => p.type === type)?.value || "00";
+        const dateStr = `${get("year")}-${get("month")}-${get("day")}`;
+        const hour = get("hour") === "24" ? "00" : get("hour");
+        const hhmm = `${hour}:${get("minute")}`;
+        return { dateStr, hhmm, slotKey: `${dateStr} ${hhmm}` };
+    }
     async checkAndRunIfDue() {
         if (!this.isEnabled() || this.isRunningSweep)
             return;
-        const row = this.db.prepare("SELECT value FROM system_settings WHERE key = 'last_auto_rotate_ts'").get();
-        const lastTs = row ? Number(row.value) : 0;
-        const oneDayMs = 24 * 60 * 60 * 1000;
-        if (Date.now() - lastTs >= oneDayMs) {
-            await this.runRotation();
-        }
+        const SCHEDULED_SLOTS = new Set(["02:55", "08:25", "09:25", "14:55", "18:55", "19:55"]);
+        const { hhmm, slotKey } = this.getEasternSlotKey();
+        if (!SCHEDULED_SLOTS.has(hhmm))
+            return;
+        const row = this.db
+            .prepare("SELECT value FROM system_settings WHERE key = 'last_auto_rotate_slot'")
+            .get();
+        if (row?.value === slotKey)
+            return;
+        this.db
+            .prepare("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('last_auto_rotate_slot', ?)")
+            .run(slotKey);
+        await this.runRotation();
     }
     async getTop13LiquidMarkets() {
         try {
