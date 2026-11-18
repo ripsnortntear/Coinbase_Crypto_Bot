@@ -327,13 +327,23 @@ export class DcaStrategy extends BaseStrategy {
       openOrders.length === 0 &&
       nowTs - this.lastSoErrorTime > 300000
     ) {
-      const cashCheck = await this.hasSufficientCash(this.config.safetyOrderAmount);
+      let orderUsd = this.config.safetyOrderAmount;
+      const cashCheck = await this.hasSufficientCash(orderUsd);
       if (!cashCheck.ok) {
-        this.lastSoErrorTime = nowTs;
-        this.log("warn", `DCA safety order paused: need $${this.config.safetyOrderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
-        return;
+        const maxAffordableUsd = Number((Math.floor((cashCheck.availableUsd / 1.01) * 100) / 100).toFixed(2));
+        if (maxAffordableUsd >= 1.25) {
+          orderUsd = maxAffordableUsd;
+          this.log(
+            "info",
+            `DCA safety order scaled to available cash: $${orderUsd.toFixed(2)} (configured $${this.config.safetyOrderAmount.toFixed(2)}, free $${cashCheck.availableUsd.toFixed(2)})`
+          );
+        } else {
+          this.lastSoErrorTime = nowTs;
+          this.log("warn", `DCA safety order paused: need $${orderUsd.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+          return;
+        }
       }
-      const safetyAmount = Number((this.config.safetyOrderAmount / ticker.last).toFixed(5));
+      const safetyAmount = Number((orderUsd / ticker.last).toFixed(5));
       if (safetyAmount > 0) {
         this.isPlacingOrder = true;
         try {
@@ -366,18 +376,27 @@ export class DcaStrategy extends BaseStrategy {
 
     try {
       const balances = await this.exchangeManager.fetchBalances(this.account, true);
-      const freeUsd = Number(balances["USD"]?.free || 0) + Number(balances["USDC"]?.free || 0);
+      const usdFree = Number(balances["USD"]?.free || 0);
+      const usdcFree = Number(balances["USDC"]?.free || 0);
+      const freeUsd = usdFree + usdcFree;
+      const bestSingleCash = Math.max(usdFree, usdcFree);
       const positionValue = currentPositionAmount * currentPrice;
       const totalAvailable = Number((freeUsd + positionValue).toFixed(2));
 
-      // Auto-scale capital when new deposits appear or balance changes by >= $0.50
-      if (totalAvailable >= 1.0 && Math.abs(totalAvailable - this.bot.allocated_capital) >= 0.50) {
+      // Dynamic Sizing: Base Order ~ 25% of capital (min $1.25), Safety Order ~ min(20% of capital, spendable free cash) (min $1.25)
+      const newBase = Math.max(1.25, Number((totalAvailable * 0.25).toFixed(2)));
+      const rawSafety = Math.max(1.25, Number((totalAvailable * 0.20).toFixed(2)));
+      const maxSpendableCash = Number((Math.floor((bestSingleCash / 1.01) * 100) / 100).toFixed(2));
+      const newSafety = maxSpendableCash >= 1.25 ? Math.max(1.25, Math.min(rawSafety, maxSpendableCash)) : rawSafety;
+
+      // Auto-scale capital when new deposits appear, balance changes by >= $0.50, or safety order cap shifts
+      if (
+        totalAvailable >= 1.0 &&
+        (Math.abs(totalAvailable - this.bot.allocated_capital) >= 0.50 ||
+          Math.abs(newSafety - this.config.safetyOrderAmount) >= 0.10)
+      ) {
         const oldCap = this.bot.allocated_capital;
         this.bot.allocated_capital = totalAvailable;
-
-        // Dynamic Sizing: Base Order ~ 25% of capital (min $1.25), Safety Order ~ 20% of capital (min $1.25)
-        const newBase = Math.max(1.25, Number((totalAvailable * 0.25).toFixed(2)));
-        const newSafety = Math.max(1.25, Number((totalAvailable * 0.20).toFixed(2)));
 
         this.config.baseOrderAmount = newBase;
         this.config.safetyOrderAmount = newSafety;
