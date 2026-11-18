@@ -333,7 +333,8 @@ export class DailyRotator {
         }
         this.savePendingBots();
 
-        // 2. Deploy or update winning bots using available free USD + USDC
+        // 2. Deploy or update winning bots using available free USD + USDC (strictly capped at max 3 running bots)
+        const MAX_RUNNING_BOTS = 3;
         const freeCash = Number(balances["USD"]?.free || 0) + Number(balances["USDC"]?.free || 0);
         const perBotCapital = winners.length > 0 ? Math.max(4.0, Number((freeCash / winners.length).toFixed(2))) : 0;
 
@@ -341,6 +342,13 @@ export class DailyRotator {
           const existing = this.db.prepare(
             "SELECT * FROM trading_bots WHERE exchange_account_id = ? AND symbol = ? AND strategy_type = ?"
           ).get(account.id, w.symbol, w.strategyType) as any;
+
+          const currentTotalBots = Number(
+            (this.db.prepare("SELECT COUNT(*) as cnt FROM trading_bots WHERE exchange_account_id = ?").get(account.id) as { cnt: number })?.cnt || 0
+          );
+          const currentActiveBots = Number(
+            (this.db.prepare("SELECT COUNT(*) as cnt FROM trading_bots WHERE exchange_account_id = ? AND status = 'active'").get(account.id) as { cnt: number })?.cnt || 0
+          );
 
           const botConfig =
             w.strategyType === "dca"
@@ -377,11 +385,12 @@ export class DailyRotator {
             if (existing.status === "active") {
               await this.botRunner.stopBot(existing.id);
               await this.botRunner.startBot(existing.id, true);
-            } else {
+              deployedBots.push(`${existing.name} (updated ${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
+            } else if (currentActiveBots < MAX_RUNNING_BOTS) {
               await this.botRunner.startBot(existing.id, true);
+              deployedBots.push(`${existing.name} (started ${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
             }
-            deployedBots.push(`${existing.name} (updated ${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
-          } else if (freeCash >= 4.0) {
+          } else if (freeCash >= 4.0 && currentTotalBots < MAX_RUNNING_BOTS && currentActiveBots < MAX_RUNNING_BOTS) {
             const botId = `bot-${crypto.randomUUID()}`;
             const base = w.symbol.split("/")[0];
             const stratLabel = w.strategyType === "dca" ? "DCA" : w.strategyType === "momentum_rsi" ? "RSI" : "Bollinger";
