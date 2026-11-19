@@ -15,6 +15,8 @@ export class DcaStrategy extends BaseStrategy {
   private trailingArmed = false;
   private peakPrice = 0;
   private lastGuardLogTime = 0;
+  private lastFreeCash = Infinity;
+  private lowCashPaused = false;
 
   constructor(bot: any, account: any, exchangeManager: any) {
     super(bot, account, exchangeManager);
@@ -325,36 +327,48 @@ export class DcaStrategy extends BaseStrategy {
     }
 
     // 6. Safety Order (Buy Dip): If price drops by configured % from last buy
-    const referencePrice = this.lastBuyPrice || avgEntry;
-    const maxSafetyByCapital = Math.max(
-      0,
-      Math.floor((this.bot.allocated_capital - this.config.baseOrderAmount) / (this.config.safetyOrderAmount || 1))
-    );
-    const effectiveMaxSafety = Math.min(this.config.maxSafetyOrders, maxSafetyByCapital);
+      const referencePrice = this.lastBuyPrice || avgEntry;
+      const maxSafetyByCapital = Math.max(
+        0,
+        Math.floor((this.bot.allocated_capital - this.config.baseOrderAmount) / (this.config.safetyOrderAmount || 1))
+      );
+      const effectiveMaxSafety = Math.min(this.config.maxSafetyOrders, maxSafetyByCapital);
 
-    if (
-      referencePrice > 0 &&
-      ticker.last <= referencePrice * (1 - this.config.priceDropPercentage / 100) &&
-      this.safetyOrdersPlaced < effectiveMaxSafety &&
-      openOrders.length === 0 &&
-      nowTs - this.lastSoErrorTime > 300000
-    ) {
-      let orderUsd = this.config.safetyOrderAmount;
-      const cashCheck = await this.hasSufficientCash(orderUsd);
-      if (!cashCheck.ok) {
-        const maxAffordableUsd = Number((Math.floor((cashCheck.availableUsd / 1.01) * 100) / 100).toFixed(2));
-        if (maxAffordableUsd >= 1.25) {
-          orderUsd = maxAffordableUsd;
-          this.log(
-            "info",
-            `DCA safety order scaled to available cash: $${orderUsd.toFixed(2)} (configured $${this.config.safetyOrderAmount.toFixed(2)}, free $${cashCheck.availableUsd.toFixed(2)})`
-          );
-        } else {
-          this.lastSoErrorTime = nowTs;
-          this.log("warn", `DCA safety order paused: need $${orderUsd.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
-          return;
-        }
+      if (this.lowCashPaused && this.lastFreeCash < 1.25 * 1.01) {
+        return;
       }
+
+      if (
+        referencePrice > 0 &&
+        ticker.last <= referencePrice * (1 - this.config.priceDropPercentage / 100) &&
+        this.safetyOrdersPlaced < effectiveMaxSafety &&
+        openOrders.length === 0 &&
+        nowTs - this.lastSoErrorTime > 300000
+      ) {
+        let orderUsd = this.config.safetyOrderAmount;
+        const cashCheck = await this.hasSufficientCash(orderUsd);
+        if (!cashCheck.ok) {
+          const maxAffordableUsd = Number((Math.floor((cashCheck.availableUsd / 1.01) * 100) / 100).toFixed(2));
+          if (maxAffordableUsd >= 1.25) {
+            orderUsd = maxAffordableUsd;
+            this.lowCashPaused = false;
+            this.log(
+              "info",
+              `DCA safety order scaled to available cash: $${orderUsd.toFixed(2)} (configured $${this.config.safetyOrderAmount.toFixed(2)}, free $${cashCheck.availableUsd.toFixed(2)})`
+            );
+          } else {
+            this.lastFreeCash = cashCheck.availableUsd;
+            if (!this.lowCashPaused) {
+              this.lowCashPaused = true;
+              this.log(
+                "warn",
+                `DCA safety order auto-paused: need at least $1.25 free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Will auto-resume when funds are available.`
+              );
+            }
+            this.lastSoErrorTime = nowTs;
+            return;
+          }
+        }
       const safetyAmount = Number((orderUsd / ticker.last).toFixed(5));
       if (safetyAmount > 0) {
         this.isPlacingOrder = true;
@@ -392,6 +406,14 @@ export class DcaStrategy extends BaseStrategy {
       const usdcFree = Number(balances["USDC"]?.free || 0);
       const freeUsd = usdFree + usdcFree;
       const bestSingleCash = Math.max(usdFree, usdcFree);
+      this.lastFreeCash = bestSingleCash;
+
+      if (this.lowCashPaused && bestSingleCash >= 1.25 * 1.01) {
+        this.lowCashPaused = false;
+        this.lastSoErrorTime = 0;
+        this.log("info", `Free USD/USDC recovered ($${bestSingleCash.toFixed(2)}). Auto-resuming DCA safety orders.`);
+      }
+
       const positionValue = currentPositionAmount * currentPrice;
       const totalAvailable = Number((freeUsd + positionValue).toFixed(2));
 
@@ -399,7 +421,7 @@ export class DcaStrategy extends BaseStrategy {
       const newBase = Math.max(1.25, Number((totalAvailable * 0.25).toFixed(2)));
       const rawSafety = Math.max(1.25, Number((totalAvailable * 0.20).toFixed(2)));
       const maxSpendableCash = Number((Math.floor((bestSingleCash / 1.01) * 100) / 100).toFixed(2));
-      const newSafety = maxSpendableCash >= 1.25 ? Math.max(1.25, Math.min(rawSafety, maxSpendableCash)) : rawSafety;
+      const newSafety = maxSpendableCash >= 1.25 ? Math.max(1.25, Math.min(rawSafety, maxSpendableCash)) : 1.25;
 
       // Auto-scale capital when new deposits appear, balance changes by >= $0.50, or safety order cap shifts
       if (

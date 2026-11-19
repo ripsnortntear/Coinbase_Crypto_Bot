@@ -221,8 +221,18 @@ test("DcaStrategy pauses safety order when free USD/USDC is below minimum $1.25 
   await strategy.onTick({ symbol: "ETH/USD", last: 97, bid: 96.9, ask: 97.1, timestamp: Date.now() } as any);
 
   assert.equal(placedOrders.length, 0, "Expected no order when free cash is below $1.25 minimum");
-  const warnLog = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND level = 'warn'").get(botId) as { message: string } | undefined;
-  assert.ok(warnLog?.message.includes("DCA safety order paused"), "Expected pause warning log");
+  const warnLogs = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND level = 'warn'").all(botId) as { message: string }[];
+  assert.equal(warnLogs.length, 1, "Expected single auto-pause warning log");
+  assert.ok(warnLogs[0]?.message.includes("DCA safety order auto-paused"), "Expected auto-pause warning log");
+
+  // Second tick (even after 5m cooldown) should not spam while free cash remains < $1.26
+  (strategy as any).lastSoErrorTime = 0;
+  await strategy.onTick({ symbol: "ETH/USD", last: 96, bid: 95.9, ask: 96.1, timestamp: Date.now() } as any);
+  const warnLogsAfter = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND level = 'warn'").all(botId) as { message: string }[];
+  assert.equal(warnLogsAfter.length, 1, "Expected no repeated warning spam while low cash persists");
+
+  const updatedBot = memDb.prepare("SELECT config_json FROM trading_bots WHERE id = ?").get(botId) as { config_json: string };
+  assert.equal(JSON.parse(updatedBot.config_json).safetyOrderAmount, 1.25, "Expected safetyOrderAmount clamped to $1.25 floor when low cash");
 });
 
 test("DcaStrategy disarms trailing take-profit instead of selling below 2.0% fee shield", async () => {
