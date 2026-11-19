@@ -346,6 +346,16 @@
       }
     }, 6000);
 
+    // Live Engine Logs Auto-Refresh (Every 3 seconds while Engine Logs tab is visible)
+    setInterval(() => {
+      if (document.visibilityState === "visible") {
+        const logsTab = document.getElementById("tab-logs");
+        if (logsTab && logsTab.classList.contains("active")) {
+          fetchLogs();
+        }
+      }
+    }, 3000);
+
     await Promise.all([
       fetchOverview(),
       fetchTickers(),
@@ -830,6 +840,8 @@
     } catch (e) {}
   }
 
+  let lastLogsSignature = "";
+
   async function fetchLogs() {
     try {
       const res = await fetch(API_BASE + "/api/system/logs?limit=80");
@@ -838,6 +850,10 @@
 
       const consoleEl = document.getElementById("logsConsole");
       if (!consoleEl) return;
+
+      const sig = json.data.length ? `${json.data[0].id || json.data[0].timestamp}:${json.data.length}` : "empty";
+      if (sig === lastLogsSignature) return;
+      lastLogsSignature = sig;
 
       if (!json.data.length) {
         consoleEl.innerHTML = `<div class="log-entry"><span class="log-msg" style="color: var(--text-muted);">No engine logs recorded.</span></div>`;
