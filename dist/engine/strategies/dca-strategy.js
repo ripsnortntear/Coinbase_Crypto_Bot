@@ -96,6 +96,8 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
         }
         // 2. Auto-Capital Absorption: Sync live Coinbase balance every 15s
         await this.syncLiveCapital(ticker.last, totalAmount);
+        if (!this.isBotActive())
+            return;
         // 3. Initial Entry: If no position and no open orders, check Risk & Regime Guards before placing Base Order
         const nowTs = Date.now();
         if (totalAmount <= 0.0001 && openOrders.length === 0) {
@@ -146,6 +148,7 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
         // 4. Take Profit Check (Supports Trailing Take-Profit when configured)
         if (avgEntry > 0 && totalAmount > 0.0001 && nowTs - this.lastTpErrorTime > 15000) {
             const tpTarget = avgEntry * (1 + this.config.takeProfitPercentage / 100);
+            const minProfitFloor = avgEntry * 1.02; // 2.0% Anti-Negative-Spin Fee Shield
             const trailPct = this.config.trailingTakeProfitPercentage || 0;
             let shouldTakeProfit = false;
             if (trailPct > 0) {
@@ -160,11 +163,19 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
                     }
                     const trailStop = Math.max(tpTarget, this.peakPrice * (1 - trailPct / 100));
                     if (ticker.last <= trailStop) {
-                        shouldTakeProfit = true;
+                        if (ticker.last >= minProfitFloor) {
+                            shouldTakeProfit = true;
+                        }
+                        else {
+                            // Price gapped below the 2.0% fee shield before trailing stop could fill; disarm instead of selling at a net loss
+                            this.trailingArmed = false;
+                            this.peakPrice = 0;
+                            this.log("info", `Trailing Take-Profit disarmed: price $${ticker.last.toFixed(4)} fell below 2.0% fee shield ($${minProfitFloor.toFixed(4)})`);
+                        }
                     }
                 }
             }
-            else if (ticker.last >= tpTarget) {
+            else if (ticker.last >= tpTarget && ticker.last >= minProfitFloor) {
                 shouldTakeProfit = true;
             }
             if (shouldTakeProfit) {

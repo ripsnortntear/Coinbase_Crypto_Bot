@@ -101,6 +101,7 @@ function createTestDcaDb() {
   db.exec(`
     CREATE TABLE trading_bots (
       id TEXT PRIMARY KEY,
+      status TEXT DEFAULT 'active',
       allocated_capital REAL,
       config_json TEXT,
       realized_pnl REAL DEFAULT 0,
@@ -222,4 +223,87 @@ test("DcaStrategy pauses safety order when free USD/USDC is below minimum $1.25 
   assert.equal(placedOrders.length, 0, "Expected no order when free cash is below $1.25 minimum");
   const warnLog = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND level = 'warn'").get(botId) as { message: string } | undefined;
   assert.ok(warnLog?.message.includes("DCA safety order paused"), "Expected pause warning log");
+});
+
+test("DcaStrategy disarms trailing take-profit instead of selling below 2.0% fee shield", async () => {
+  const memDb = createTestDcaDb();
+  const botId = "test-dca-ttp-shield";
+  const initialConfig = {
+    baseOrderAmount: 4.0,
+    safetyOrderAmount: 3.2,
+    maxSafetyOrders: 5,
+    priceDropPercentage: 1.8,
+    takeProfitPercentage: 2.5,
+    trailingTakeProfitPercentage: 0.3,
+  };
+  memDb.prepare("INSERT INTO trading_bots (id, status, allocated_capital, config_json) VALUES (?, 'active', ?, ?)")
+    .run(botId, 16.0, JSON.stringify(initialConfig));
+  memDb.prepare("INSERT INTO trades (id, bot_id, side, price, amount, cost, timestamp) VALUES (?, ?, 'buy', ?, ?, ?, ?)")
+    .run("t1", botId, 2.24, 1.78, 3.9872, "2026-11-19T01:02:33.000Z");
+
+  const placedOrders: any[] = [];
+  const fakeExchange = {
+    fetchBalances: async () => ({ USD: { free: 12.0 }, USDC: { free: 0 }, PEARL: { free: 1.78 } }),
+    createOrder: async (_acct: any, params: any) => {
+      placedOrders.push(params);
+      return { id: "ord-1", ...params };
+    },
+  };
+
+  const strategy = new DcaStrategy(
+    { id: botId, symbol: "PEARL/USD", allocated_capital: 16.0, config_json: JSON.stringify(initialConfig) },
+    { id: "acct-1", is_paper: 0 },
+    fakeExchange
+  );
+  (strategy as any).db = memDb;
+
+  // Tick 1: Price spikes to $2.30 -> arms trailing TP (+2.68%)
+  await strategy.onTick({ symbol: "PEARL/USD", last: 2.30, bid: 2.29, ask: 2.31, timestamp: Date.now() } as any);
+  assert.equal(placedOrders.length, 0);
+
+  // Tick 2: Price gaps down to $2.2695 (+1.32%, below 2.0% fee shield) -> must disarm, not sell at a net loss
+  await strategy.onTick({ symbol: "PEARL/USD", last: 2.2695, bid: 2.26, ask: 2.27, timestamp: Date.now() } as any);
+  assert.equal(placedOrders.length, 0, "Expected trailing TP to disarm instead of selling below 2.0% fee shield");
+
+  const disarmLog = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND message LIKE '%disarmed%'").get(botId) as { message: string } | undefined;
+  assert.ok(disarmLog, "Expected disarm log message");
+});
+
+test("DcaStrategy aborts in-flight tick cleanly when bot is deleted during async balance sync", async () => {
+  const memDb = createTestDcaDb();
+  const botId = "test-dca-deleted-bot";
+  const initialConfig = {
+    baseOrderAmount: 4.0,
+    safetyOrderAmount: 3.2,
+    maxSafetyOrders: 5,
+    priceDropPercentage: 1.8,
+    takeProfitPercentage: 2.5,
+  };
+  memDb.prepare("INSERT INTO trading_bots (id, status, allocated_capital, config_json) VALUES (?, 'active', ?, ?)")
+    .run(botId, 16.0, JSON.stringify(initialConfig));
+
+  const placedOrders: any[] = [];
+  const fakeExchange = {
+    fetchBalances: async () => {
+      // Simulate rotator deleting the bot while fetchBalances is awaiting
+      memDb.prepare("DELETE FROM trading_bots WHERE id = ?").run(botId);
+      return { USD: { free: 16.0 }, USDC: { free: 0 } };
+    },
+    createOrder: async (_acct: any, params: any) => {
+      placedOrders.push(params);
+      return { id: "ord-1", ...params };
+    },
+  };
+
+  const strategy = new DcaStrategy(
+    { id: botId, symbol: "VVV/USD", allocated_capital: 16.0, config_json: JSON.stringify(initialConfig) },
+    { id: "acct-1", is_paper: 0 },
+    fakeExchange
+  );
+  (strategy as any).db = memDb;
+
+  await strategy.onTick({ symbol: "VVV/USD", last: 20.0, bid: 19.9, ask: 20.1, timestamp: Date.now() } as any);
+  assert.equal(placedOrders.length, 0, "Expected deleted bot not to place orders");
+  const errLogs = memDb.prepare("SELECT message FROM system_logs WHERE bot_id = ? AND level = 'error'").all(botId);
+  assert.equal(errLogs.length, 0, "Expected no FOREIGN KEY constraint error logs");
 });

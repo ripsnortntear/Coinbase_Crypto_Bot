@@ -147,6 +147,15 @@ export abstract class BaseStrategy {
     return { allowed: true };
   }
 
+  protected isBotActive(): boolean {
+    try {
+      const row = this.db.prepare("SELECT status FROM trading_bots WHERE id = ?").get(this.bot.id) as { status: string } | undefined;
+      return row?.status === "active";
+    } catch {
+      return false;
+    }
+  }
+
   protected async placeOrder(
     side: "buy" | "sell",
     type: "limit" | "market",
@@ -154,6 +163,10 @@ export abstract class BaseStrategy {
     amount: number,
     makerFirst = false
   ): Promise<Order> {
+    if (!this.isBotActive()) {
+      throw new Error(`Bot ${this.bot.id} is stopped or deleted; aborting ${side} order`);
+    }
+
     if (side === "buy" && price > 0 && amount > 0) {
       const requiredUsd = price * amount;
       const cashCheck = await this.hasSufficientCash(requiredUsd);
@@ -161,6 +174,9 @@ export abstract class BaseStrategy {
         throw new Error(
           `Insufficient free USD/USDC ($${cashCheck.availableUsd.toFixed(2)} available, need $${requiredUsd.toFixed(2)})`
         );
+      }
+      if (!this.isBotActive()) {
+        throw new Error(`Bot ${this.bot.id} is stopped or deleted; aborting ${side} order`);
       }
     }
 

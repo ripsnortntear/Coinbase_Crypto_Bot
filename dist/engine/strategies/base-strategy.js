@@ -136,12 +136,27 @@ class BaseStrategy {
         catch { }
         return { allowed: true };
     }
+    isBotActive() {
+        try {
+            const row = this.db.prepare("SELECT status FROM trading_bots WHERE id = ?").get(this.bot.id);
+            return row?.status === "active";
+        }
+        catch {
+            return false;
+        }
+    }
     async placeOrder(side, type, price, amount, makerFirst = false) {
+        if (!this.isBotActive()) {
+            throw new Error(`Bot ${this.bot.id} is stopped or deleted; aborting ${side} order`);
+        }
         if (side === "buy" && price > 0 && amount > 0) {
             const requiredUsd = price * amount;
             const cashCheck = await this.hasSufficientCash(requiredUsd);
             if (!cashCheck.ok) {
                 throw new Error(`Insufficient free USD/USDC ($${cashCheck.availableUsd.toFixed(2)} available, need $${requiredUsd.toFixed(2)})`);
+            }
+            if (!this.isBotActive()) {
+                throw new Error(`Bot ${this.bot.id} is stopped or deleted; aborting ${side} order`);
             }
         }
         const order = await this.exchangeManager.createOrder(this.account, {
