@@ -347,6 +347,7 @@ class ExchangeManager {
         const balances = await this.fetchBalances(account);
         let totalUsd = 0;
         const parts = [];
+        const assets = [];
         const stableCoins = new Set(["USD", "USDC", "USDT", "USDS", "DAI", "BUSD"]);
         for (const [currency, b] of Object.entries(balances)) {
             if (b.total <= 0)
@@ -355,6 +356,7 @@ class ExchangeManager {
                 totalUsd += b.total;
                 if (b.total >= 0.01) {
                     parts.push(`$${b.total.toFixed(2)} ${currency}`);
+                    assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(b.total.toFixed(2)), isStable: true });
                 }
             }
             else {
@@ -364,6 +366,7 @@ class ExchangeManager {
                     totalUsd += val;
                     if (val >= 0.01) {
                         parts.push(`${b.total.toFixed(4)} ${currency} (~$${val.toFixed(2)})`);
+                        assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(val.toFixed(2)), isStable: false });
                     }
                 }
                 catch {
@@ -374,6 +377,7 @@ class ExchangeManager {
                         totalUsd += val;
                         if (val >= 0.01) {
                             parts.push(`${b.total.toFixed(4)} ${currency} (~$${val.toFixed(2)})`);
+                            assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(val.toFixed(2)), isStable: false });
                         }
                     }
                     catch {
@@ -382,10 +386,12 @@ class ExchangeManager {
                 }
             }
         }
+        assets.sort((a, b) => b.usdValue - a.usdValue);
         return {
             totalUsd,
             balances,
             breakdown: parts.join(" | ") || "USD Balance",
+            assets,
         };
     }
 }

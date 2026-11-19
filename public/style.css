@@ -1017,6 +1017,36 @@ html.is-scrolling .macro-row::-webkit-scrollbar-thumb {
   justify-content: space-between;
 }
 
+.portfolio-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.portfolio-pill {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.65rem;
+  line-height: 1.35;
+  color: var(--text-main);
+  white-space: nowrap;
+}
+
+.portfolio-pill.cash {
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.3);
+  color: var(--emerald);
+}
+
+.portfolio-pill.dust {
+  color: var(--text-muted);
+  border-style: dashed;
+}
+
 /* Mini Bar / Progress Meter */
 .micro-bar-wrap {
   width: 100%;

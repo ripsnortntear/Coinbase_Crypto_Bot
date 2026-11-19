@@ -95,7 +95,13 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
 
       // Live portfolio balance computation
       const liveAccount = db.prepare("SELECT * FROM exchange_accounts WHERE is_paper = 0 AND is_active = 1 LIMIT 1").get() as any;
-      let livePortfolio = { totalUsd: 0, balances: {} as any, breakdown: "No live account connected", accountName: "None" };
+      let livePortfolio = {
+        totalUsd: 0,
+        balances: {} as any,
+        breakdown: "No live account connected",
+        accountName: "None",
+        assets: [] as Array<{ currency: string; amount: number; usdValue: number; isStable: boolean }>,
+      };
 
       if (liveAccount) {
         try {
@@ -105,6 +111,7 @@ export function createSystemRouter(botRunner: BotRunner, exchangeManager: Exchan
             balances: calc.balances,
             breakdown: calc.breakdown,
             accountName: liveAccount.name,
+            assets: calc.assets,
           };
         } catch (balErr: any) {
           console.warn("[SystemRouter] Failed fetching live balance:", balErr.message);

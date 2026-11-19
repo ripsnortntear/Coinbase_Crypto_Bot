@@ -449,10 +449,12 @@ export class ExchangeManager {
     totalUsd: number;
     balances: Record<string, { free: number; used: number; total: number }>;
     breakdown: string;
+    assets: Array<{ currency: string; amount: number; usdValue: number; isStable: boolean }>;
   }> {
     const balances = await this.fetchBalances(account);
     let totalUsd = 0;
     const parts: string[] = [];
+    const assets: Array<{ currency: string; amount: number; usdValue: number; isStable: boolean }> = [];
 
     const stableCoins = new Set(["USD", "USDC", "USDT", "USDS", "DAI", "BUSD"]);
 
@@ -462,6 +464,7 @@ export class ExchangeManager {
         totalUsd += b.total;
         if (b.total >= 0.01) {
           parts.push(`$${b.total.toFixed(2)} ${currency}`);
+          assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(b.total.toFixed(2)), isStable: true });
         }
       } else {
         try {
@@ -470,6 +473,7 @@ export class ExchangeManager {
           totalUsd += val;
           if (val >= 0.01) {
             parts.push(`${b.total.toFixed(4)} ${currency} (~$${val.toFixed(2)})`);
+            assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(val.toFixed(2)), isStable: false });
           }
         } catch {
           // If ticker lookup fails, try USDT
@@ -479,6 +483,7 @@ export class ExchangeManager {
             totalUsd += val;
             if (val >= 0.01) {
               parts.push(`${b.total.toFixed(4)} ${currency} (~$${val.toFixed(2)})`);
+              assets.push({ currency: currency.toUpperCase(), amount: b.total, usdValue: Number(val.toFixed(2)), isStable: false });
             }
           } catch {
             // Cannot price asset
@@ -487,10 +492,13 @@ export class ExchangeManager {
       }
     }
 
+    assets.sort((a, b) => b.usdValue - a.usdValue);
+
     return {
       totalUsd,
       balances,
       breakdown: parts.join(" | ") || "USD Balance",
+      assets,
     };
   }
 }

@@ -15,7 +15,7 @@
 <br/>
 
 [**📖 Explore Wiki Documentation**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/wiki) •
-[**📦 Download Latest Release (v1.2.10)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
+[**📦 Download Latest Release (v1.2.11)**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest) •
 [**🐛 Report Issue**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues) •
 [**✨ Request Feature**](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/issues)
 

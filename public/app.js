@@ -300,7 +300,9 @@
     if (!state.overview || !state.overview.livePortfolio || !state.overview.livePortfolio.balances) return;
 
     const balances = state.overview.livePortfolio.balances;
-    const stableCoins = new Set(["USD", "USDC", "USDT", "USDS", "DAI"]);
+    const serverAssets = Array.isArray(state.overview.livePortfolio.assets) ? state.overview.livePortfolio.assets : [];
+    const serverUsdByCurr = new Map(serverAssets.map(a => [a.currency.toUpperCase(), a]));
+    const stableCoins = new Set(["USD", "USDC", "USDT", "USDS", "DAI", "BUSD"]);
     let totalUsd = 0;
 
     for (const [curr, bal] of Object.entries(balances)) {
@@ -308,19 +310,16 @@
       const cUpper = curr.toUpperCase();
       if (stableCoins.has(cUpper)) {
         totalUsd += bal.total;
-      } else if (cUpper === "ETH") {
-        const ethPrice = (ticker && ticker.symbol && ticker.symbol.startsWith("ETH/")) ? ticker.last : (state.tickers["ETH/USD"]?.last || 1825);
-        totalUsd += bal.total * ethPrice;
-      } else if (cUpper === "BTC") {
-        const btcPrice = (ticker && ticker.symbol && ticker.symbol.startsWith("BTC/")) ? ticker.last : (state.tickers["BTC/USD"]?.last || 90000);
-        totalUsd += bal.total * btcPrice;
-      } else if (cUpper === "SOL") {
-        const solPrice = (ticker && ticker.symbol && ticker.symbol.startsWith("SOL/")) ? ticker.last : (state.tickers["SOL/USD"]?.last || 150);
-        totalUsd += bal.total * solPrice;
-      } else if (cUpper === "XTZ") {
-        totalUsd += bal.total * 0.22;
       } else {
-        totalUsd += bal.total * 1.0;
+        const liveTicker =
+          (ticker && ticker.symbol === `${cUpper}/USD` && ticker.last > 0)
+            ? ticker.last
+            : (state.tickers[`${cUpper}/USD`]?.last || 0);
+        if (liveTicker > 0) {
+          totalUsd += bal.total * liveTicker;
+        } else if (serverUsdByCurr.has(cUpper)) {
+          totalUsd += serverUsdByCurr.get(cUpper).usdValue;
+        }
       }
     }
 
@@ -418,7 +417,28 @@
       const portSubEl = document.getElementById("statPortfolioSub");
       if (d.livePortfolio && d.livePortfolio.totalUsd > 0) {
         if (portEl) portEl.textContent = `$${d.livePortfolio.totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        if (portSubEl) portSubEl.textContent = d.livePortfolio.breakdown || `${d.livePortfolio.accountName} Live Assets`;
+        if (portSubEl) {
+          portSubEl.title = d.livePortfolio.breakdown || `${d.livePortfolio.accountName} Live Assets`;
+          const assets = Array.isArray(d.livePortfolio.assets) ? d.livePortfolio.assets : [];
+          if (assets.length > 0) {
+            const cashTotal = assets.filter(a => a.isStable).reduce((s, a) => s + a.usdValue, 0);
+            const holdings = assets.filter(a => !a.isStable && a.usdValue >= 0.50).slice(0, 4);
+            const dustCount = assets.filter(a => !a.isStable && a.usdValue < 0.50).length;
+            const pills = [];
+            if (cashTotal >= 0.01) {
+              pills.push(`<span class="portfolio-pill cash">$${cashTotal.toFixed(2)} Cash</span>`);
+            }
+            for (const h of holdings) {
+              pills.push(`<span class="portfolio-pill">${escapeHtml(h.currency)} $${h.usdValue.toFixed(2)}</span>`);
+            }
+            if (dustCount > 0) {
+              pills.push(`<span class="portfolio-pill dust">+${dustCount} dust</span>`);
+            }
+            portSubEl.innerHTML = `<div class="portfolio-pills">${pills.join("")}</div>`;
+          } else {
+            portSubEl.textContent = d.livePortfolio.breakdown || `${d.livePortfolio.accountName} Live Assets`;
+          }
+        }
       } else if (d.paperBalances && Object.keys(d.paperBalances).length > 0) {
         let totalPaper = (d.paperBalances.USDT?.total || 0) + (d.paperBalances.USD?.total || 0);
         if (portEl) portEl.textContent = `$${totalPaper.toLocaleString(undefined, { minimumFractionDigits: 2 })}`;

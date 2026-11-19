@@ -88,7 +88,13 @@ function createSystemRouter(botRunner, exchangeManager) {
             const panicSetting = db.prepare("SELECT value FROM system_settings WHERE key = 'panic_active'").get();
             // Live portfolio balance computation
             const liveAccount = db.prepare("SELECT * FROM exchange_accounts WHERE is_paper = 0 AND is_active = 1 LIMIT 1").get();
-            let livePortfolio = { totalUsd: 0, balances: {}, breakdown: "No live account connected", accountName: "None" };
+            let livePortfolio = {
+                totalUsd: 0,
+                balances: {},
+                breakdown: "No live account connected",
+                accountName: "None",
+                assets: [],
+            };
             if (liveAccount) {
                 try {
                     const calc = await exchangeManager.calculateTotalPortfolioUsd(liveAccount);
@@ -97,6 +103,7 @@ function createSystemRouter(botRunner, exchangeManager) {
                         balances: calc.balances,
                         breakdown: calc.breakdown,
                         accountName: liveAccount.name,
+                        assets: calc.assets,
                     };
                 }
                 catch (balErr) {
