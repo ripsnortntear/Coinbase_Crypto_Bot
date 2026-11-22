@@ -15,7 +15,7 @@ class StrategyOptimizer {
         if (!candles || candles.length < 40) {
             throw new Error(`Insufficient candles to optimize ${req.symbol}`);
         }
-        const tpGrid = [2.0, 2.5, 3.2, 4.0];
+        const tpGrid = [5.0, 6.5, 8.0, 10.0];
         const trailGrid = [0, 0.3, 0.6];
         const dropGrid = req.strategyType === "dca" ? [1.2, 1.8, 2.5] : [1.8];
         const candidates = [];

@@ -74,6 +74,10 @@ test("StrategyOptimizer sweeps parameter grid and ranks top candidates", async (
   assert.equal(res.topResults.length, 5);
   assert.equal(res.topResults[0].rank, 1);
   assert.ok(res.topResults[0].score >= res.topResults[1].score);
+  assert.ok(
+    res.topResults[0].config.takeProfitPercentage >= 5.0 && res.topResults[0].config.takeProfitPercentage <= 10.0,
+    `Expected TP in 5%-10% range, got ${res.topResults[0].config.takeProfitPercentage}`
+  );
 });
 
 test("MlPredictor trains online logistic regression and outputs bounded probabilities", () => {

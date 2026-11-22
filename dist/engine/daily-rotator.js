@@ -261,8 +261,8 @@ class DailyRotator {
                 }
             }
             const ranked = Array.from(bestPerSymbol.values()).sort((a, b) => b.score - a.score);
-            // Select top 2 profitable markets (returnPct > 0), or top 1 if only 1 is profitable
-            const winners = ranked.filter((c) => c.returnPct > 0).slice(0, 2);
+            // Select all profitable markets (returnPct > 0); deployment is bounded by MAX_RUNNING_BOTS (99) and available free cash
+            const winners = ranked.filter((c) => c.returnPct > 0);
             const winnerKeys = new Set(winners.map((w) => `${w.symbol}:${w.strategyType}`));
             const account = this.db.prepare("SELECT * FROM exchange_accounts WHERE is_paper = 0 AND is_active = 1 LIMIT 1").get();
             if (account) {
@@ -290,10 +290,16 @@ class DailyRotator {
                     removedBots.push(`${bot.name} (${bot.symbol})`);
                 }
                 this.savePendingBots();
-                // 2. Deploy or update winning bots using available free USD + USDC (strictly capped at max 3 running bots)
-                const MAX_RUNNING_BOTS = 3;
+                // 2. Deploy or update winning bots using available free USD + USDC (up to 99 running bots, strictly bounded by free cash)
+                const MAX_RUNNING_BOTS = 99;
                 const freeCash = Number(balances["USD"]?.free || 0) + Number(balances["USDC"]?.free || 0);
-                const perBotCapital = winners.length > 0 ? Math.max(4.0, Number((freeCash / winners.length).toFixed(2))) : 0;
+                let remainingFreeCash = freeCash;
+                const maxNewBotsByCash = Math.floor(freeCash / 4.0);
+                const existingKeysAfterCleanup = new Set(this.db.prepare("SELECT symbol, strategy_type FROM trading_bots WHERE exchange_account_id = ?").all(account.id)
+                    .map((b) => `${b.symbol}:${b.strategy_type}`));
+                const newWinnerCount = winners.filter((w) => !existingKeysAfterCleanup.has(`${w.symbol}:${w.strategyType}`)).length;
+                const fundableNewBots = Math.min(newWinnerCount, maxNewBotsByCash, MAX_RUNNING_BOTS);
+                const perBotCapital = fundableNewBots > 0 ? Math.max(4.0, Number((freeCash / fundableNewBots).toFixed(2))) : Math.max(4.0, Number(freeCash.toFixed(2)));
                 for (const w of winners) {
                     const existing = this.db.prepare("SELECT * FROM trading_bots WHERE exchange_account_id = ? AND symbol = ? AND strategy_type = ?").get(account.id, w.symbol, w.strategyType);
                     const currentTotalBots = Number(this.db.prepare("SELECT COUNT(*) as cnt FROM trading_bots WHERE exchange_account_id = ?").get(account.id)?.cnt || 0);
@@ -304,7 +310,7 @@ class DailyRotator {
                             safetyOrderAmount: Math.max(1.25, Number((perBotCapital * 0.20).toFixed(2))),
                             maxSafetyOrders: 5,
                             priceDropPercentage: Math.max(1.2, Number(w.config.priceDropPercentage || 1.8)),
-                            takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 2.5)),
+                            takeProfitPercentage: Math.max(5.0, Number(w.config.takeProfitPercentage || 6.5)),
                             trailingTakeProfitPercentage: Number(w.config.trailingTakeProfitPercentage || 0) || undefined,
                         }
                         : w.strategyType === "momentum_rsi"
@@ -314,7 +320,7 @@ class DailyRotator {
                                 rsiOverbought: 70,
                                 timeframe: "1h",
                                 orderAmount: Math.max(2.0, Number((perBotCapital * 0.5).toFixed(2))),
-                                takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 3.0)),
+                                takeProfitPercentage: Math.max(5.0, Number(w.config.takeProfitPercentage || 6.5)),
                                 stopLossPercentage: 6.0,
                             }
                             : {
@@ -322,7 +328,7 @@ class DailyRotator {
                                 stdDev: 2,
                                 timeframe: "1h",
                                 orderAmount: Math.max(2.0, Number((perBotCapital * 0.5).toFixed(2))),
-                                takeProfitPercentage: Math.max(2.0, Number(w.config.takeProfitPercentage || 4.0)),
+                                takeProfitPercentage: Math.max(5.0, Number(w.config.takeProfitPercentage || 6.5)),
                                 stopLossPercentage: 6.0,
                             };
                     if (existing) {
@@ -338,7 +344,9 @@ class DailyRotator {
                             deployedBots.push(`${existing.name} (started ${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
                         }
                     }
-                    else if (freeCash >= 4.0 && currentTotalBots < MAX_RUNNING_BOTS && currentActiveBots < MAX_RUNNING_BOTS) {
+                    else if (remainingFreeCash >= 4.0 && currentTotalBots < MAX_RUNNING_BOTS && currentActiveBots < MAX_RUNNING_BOTS) {
+                        const alloc = Math.min(perBotCapital, Number(remainingFreeCash.toFixed(2)));
+                        remainingFreeCash -= alloc;
                         const botId = `bot-${crypto_1.default.randomUUID()}`;
                         const base = w.symbol.split("/")[0];
                         const stratLabel = w.strategyType === "dca" ? "DCA" : w.strategyType === "momentum_rsi" ? "RSI" : "Bollinger";
@@ -350,7 +358,7 @@ class DailyRotator {
                 config_json, allocated_capital, realized_pnl, unrealized_pnl,
                 total_trades, winning_trades, created_at, updated_at
               ) VALUES (?, ?, ?, ?, ?, 'stopped', ?, ?, 0.0, 0.0, 0, 0, ?, ?)
-            `).run(botId, name, account.id, w.symbol, w.strategyType, JSON.stringify(botConfig), perBotCapital, now, now);
+            `).run(botId, name, account.id, w.symbol, w.strategyType, JSON.stringify(botConfig), alloc, now, now);
                         await this.botRunner.startBot(botId, true);
                         deployedBots.push(`${name} (${w.symbol} ${w.strategyType} TP +${botConfig.takeProfitPercentage}%)`);
                     }
