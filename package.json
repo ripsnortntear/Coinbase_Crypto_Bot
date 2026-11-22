@@ -17,7 +17,7 @@
     "grid-trading"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "GPL-3.0",
   "type": "commonjs",
   "dependencies": {
     "ccxt": "^4.5.92",

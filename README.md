@@ -273,7 +273,7 @@ See [**CONTRIBUTORS.md**](CONTRIBUTORS.md) for full details.
 
 ## 📄 License
 
-Distributed under the **MIT License**. Built for autonomous cryptocurrency trading operations across Windows and Linux environments.
+Distributed under the **GNU General Public License v3.0 (GPL-3.0)** — see [LICENSE](LICENSE) for details. Built for autonomous cryptocurrency trading operations across Windows and Linux environments.
 
 <div align="center">
   <sub>⭐ If this project helps your trading, consider giving it a star on GitHub! ⭐</sub>
