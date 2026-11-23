@@ -289,17 +289,9 @@ export class DailyRotator {
         }
       }
 
-      // Deduplicate by symbol (keep best strategy per symbol) and rank descending
-      const bestPerSymbol = new Map<string, RotatorCandidate>();
-      for (const c of candidates) {
-        const existing = bestPerSymbol.get(c.symbol);
-        if (!existing || c.score > existing.score) {
-          bestPerSymbol.set(c.symbol, c);
-        }
-      }
-
-      const ranked = Array.from(bestPerSymbol.values()).sort((a, b) => b.score - a.score);
-      // Select all profitable markets (returnPct > 0); deployment is bounded by MAX_RUNNING_BOTS (99) and available free cash
+      // Rank all (symbol, strategyType) candidates descending; multiple profitable strategies per coin are allowed
+      const ranked = [...candidates].sort((a, b) => b.score - a.score);
+      // Select all profitable (market, strategy) pairs (returnPct > 0); bounded by MAX_RUNNING_BOTS (99) and free cash
       const winners = ranked.filter((c) => c.returnPct > 0);
       const winnerKeys = new Set(winners.map((w) => `${w.symbol}:${w.strategyType}`));
 
@@ -367,6 +359,7 @@ export class DailyRotator {
                   priceDropPercentage: Math.max(1.2, Number(w.config.priceDropPercentage || 1.8)),
                   takeProfitPercentage: Math.max(5.0, Number(w.config.takeProfitPercentage || 6.5)),
                   trailingTakeProfitPercentage: Number(w.config.trailingTakeProfitPercentage || 0) || undefined,
+                  stopLossPercentage: 8.0,
                 }
               : w.strategyType === "momentum_rsi"
               ? {

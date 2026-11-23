@@ -40,7 +40,7 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
                 ? Number(raw.stopLossPercentage)
                 : raw.stopLoss != null
                     ? Number(raw.stopLoss)
-                    : undefined,
+                    : 8.0,
         };
     }
     async initialize() {

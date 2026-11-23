@@ -176,6 +176,7 @@ test("DcaStrategy caps and scales safetyOrderAmount to available free USD/USDC",
     { id: "acct-1", is_paper: 0 },
     fakeExchange
   );
+  assert.equal((strategy as any).config.stopLossPercentage, 8.0, "Expected default 8.0% DCA stop-loss");
   (strategy as any).db = memDb;
 
   // Price dropped > 1.8% ($100 -> $97)
@@ -220,6 +221,7 @@ test("DcaStrategy pauses safety order when free USD/USDC is below minimum $1.25 
     { id: "acct-1", is_paper: 0 },
     fakeExchange
   );
+  assert.equal((strategy as any).config.stopLossPercentage, 8.0, "Expected default 8.0% DCA stop-loss");
   (strategy as any).db = memDb;
 
   await strategy.onTick({ symbol: "ETH/USD", last: 97, bid: 96.9, ask: 97.1, timestamp: Date.now() } as any);

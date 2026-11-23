@@ -39,7 +39,7 @@ export class DcaStrategy extends BaseStrategy {
           ? Number(raw.stopLossPercentage)
           : raw.stopLoss != null
           ? Number(raw.stopLoss)
-          : undefined,
+          : 8.0,
     };
   }
 
