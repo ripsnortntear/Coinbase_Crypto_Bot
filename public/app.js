@@ -2175,6 +2175,7 @@
     for (const id of selectIds) {
       const sel = document.getElementById(id);
       if (!sel) continue;
+      let added = false;
       for (const bot of state.bots) {
         if (!bot.symbol) continue;
         if (!Array.from(sel.options).some((o) => o.value === bot.symbol)) {
@@ -2182,7 +2183,15 @@
           opt.value = bot.symbol;
           opt.textContent = `${bot.symbol} (Active Bot)`;
           sel.appendChild(opt);
+          added = true;
         }
+      }
+      if (added) {
+        const cur = sel.value;
+        const sorted = Array.from(sel.options).sort((a, b) => a.value.localeCompare(b.value));
+        sel.innerHTML = "";
+        for (const opt of sorted) sel.appendChild(opt);
+        if (cur) sel.value = cur;
       }
     }
   }
@@ -2193,13 +2202,14 @@
       const json = await res.json();
       if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) return;
 
+      const sortedPairs = [...json.data].sort((a, b) => String(a.symbol).localeCompare(String(b.symbol)));
       const selectIds = ["selectSymbol", "botSymbol", "btSymbol", "canvasSymbol"];
       for (const id of selectIds) {
         const sel = document.getElementById(id);
         if (!sel) continue;
         const prevVal = sel.value || "ETH/USD";
         sel.innerHTML = "";
-        for (const p of json.data) {
+        for (const p of sortedPairs) {
           const opt = document.createElement("option");
           opt.value = p.symbol;
           const sign = p.changePct >= 0 ? "+" : "";
