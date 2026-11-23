@@ -387,6 +387,53 @@
     }
   }
 
+  function updateQuickSellEstimate() {
+    const sel = document.getElementById("quickSellAsset");
+    const amtEl = document.getElementById("quickSellAmount");
+    const estEl = document.getElementById("quickSellEstUsd");
+    if (!sel || !amtEl || !estEl) return;
+    const opt = sel.options[sel.selectedIndex];
+    const unitPrice = parseFloat(opt?.dataset?.price || "0");
+    const amt = parseFloat(amtEl.value || "0");
+    estEl.textContent = unitPrice > 0 && amt > 0 ? `(≈ $${(amt * unitPrice).toFixed(2)})` : "";
+  }
+
+  function updateQuickSellOptions(livePortfolio) {
+    const sel = document.getElementById("quickSellAsset");
+    if (!sel || !livePortfolio) return;
+
+    const prevSelected = sel.value;
+    const assets = Array.isArray(livePortfolio.assets) ? livePortfolio.assets : [];
+    const balances = livePortfolio.balances || {};
+    const holdable = assets
+      .filter((a) => !a.isStable && Number(balances[a.currency]?.free ?? a.amount ?? 0) > 0.00001)
+      .sort((a, b) => b.usdValue - a.usdValue);
+
+    if (holdable.length === 0) {
+      sel.innerHTML = `<option value="">No non-USD holdings</option>`;
+      updateQuickSellEstimate();
+      return;
+    }
+
+    sel.innerHTML = holdable.map((a) => {
+      const free = Number(balances[a.currency]?.free ?? a.amount ?? 0);
+      const unitPrice = a.amount > 0 ? a.usdValue / a.amount : 0;
+      const freeStr = free >= 1 ? free.toFixed(4) : free.toFixed(6);
+      return `<option value="${escapeHtml(a.currency)}" data-free="${free}" data-price="${unitPrice}">${escapeHtml(a.currency)} (${freeStr} · ~$${a.usdValue.toFixed(2)})</option>`;
+    }).join("");
+
+    if (prevSelected && holdable.some((h) => h.currency === prevSelected)) {
+      sel.value = prevSelected;
+    } else {
+      sel.selectedIndex = 0;
+      const amtEl = document.getElementById("quickSellAmount");
+      if (amtEl && !amtEl.value) {
+        amtEl.value = sel.options[0]?.dataset?.free || "";
+      }
+    }
+    updateQuickSellEstimate();
+  }
+
   async function fetchOverview() {
     try {
       const res = await fetch(API_BASE + "/api/system/overview");
@@ -415,7 +462,8 @@
       // Portfolio Total
       const portEl = document.getElementById("statPortfolio");
       const portSubEl = document.getElementById("statPortfolioSub");
-      if (d.livePortfolio && d.livePortfolio.totalUsd > 0) {
+        if (d.livePortfolio && d.livePortfolio.totalUsd > 0) {
+        updateQuickSellOptions(d.livePortfolio);
         if (portEl) portEl.textContent = `$${d.livePortfolio.totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
         if (portSubEl) {
           portSubEl.title = d.livePortfolio.breakdown || `${d.livePortfolio.accountName} Live Assets`;
@@ -989,7 +1037,7 @@
       if (groupLimit) groupLimit.style.display = e.target.value === "limit" ? "block" : "none";
     });
 
-    // Manual Order Form Submit
+      // Manual Order Form Submit
     document.getElementById("formManualOrder")?.addEventListener("submit", async (e) => {
       e.preventDefault();
       const amount = parseFloat(document.getElementById("orderAmount")?.value || "0");
@@ -1025,6 +1073,85 @@
         }
       } catch (err) {
         alert("Network request failed");
+      }
+    });
+
+    // Quick Sell / Convert Held Coin to USD
+    document.getElementById("quickSellAsset")?.addEventListener("change", () => {
+      const sel = document.getElementById("quickSellAsset");
+      const amtEl = document.getElementById("quickSellAmount");
+      const opt = sel?.options[sel.selectedIndex];
+      if (amtEl && opt?.dataset?.free) {
+        amtEl.value = opt.dataset.free;
+        updateQuickSellEstimate();
+      }
+    });
+
+    document.getElementById("quickSellAmount")?.addEventListener("input", updateQuickSellEstimate);
+
+    document.querySelectorAll(".quick-sell-pct").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const pct = parseFloat(btn.getAttribute("data-pct") || "1");
+        const sel = document.getElementById("quickSellAsset");
+        const amtEl = document.getElementById("quickSellAmount");
+        const opt = sel?.options[sel.selectedIndex];
+        const free = parseFloat(opt?.dataset?.free || "0");
+        if (amtEl && free > 0) {
+          const val = pct >= 1 ? free : Number((free * pct).toFixed(6));
+          amtEl.value = val;
+          updateQuickSellEstimate();
+        }
+      });
+    });
+
+    document.getElementById("btnQuickSell")?.addEventListener("click", async () => {
+      const sel = document.getElementById("quickSellAsset");
+      const amtEl = document.getElementById("quickSellAmount");
+      const btn = document.getElementById("btnQuickSell");
+      const asset = sel?.value;
+      const amount = parseFloat(amtEl?.value || "0");
+      const opt = sel?.options[sel.selectedIndex];
+      const unitPrice = parseFloat(opt?.dataset?.price || "0");
+      const activeExchangeId = document.getElementById("terminalAccountSelect")?.value || state.exchanges.find(e => e.is_paper === 0)?.id || state.exchanges[0]?.id;
+
+      if (!activeExchangeId) return alert("No active exchange account available");
+      if (!asset) return alert("Select a coin to sell/convert");
+      if (amount <= 0) return alert("Enter a valid amount to sell");
+
+      const estUsd = unitPrice > 0 ? ` (~$${(amount * unitPrice).toFixed(2)})` : "";
+      if (!confirm(`Market sell ${amount} ${asset}${estUsd} to USD?`)) return;
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Selling...";
+      }
+      try {
+        const res = await fetch(API_BASE + "/api/orders/manual", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            exchange_account_id: activeExchangeId,
+            symbol: `${asset}/USD`,
+            side: "sell",
+            type: "market",
+            price: unitPrice,
+            amount,
+          }),
+        });
+        const json = await res.json();
+        if (json.ok) {
+          if (amtEl) amtEl.value = "";
+          await Promise.all([fetchOverview(), fetchOrders(), fetchTrades(), fetchPositions()]);
+        } else {
+          alert(json.error || "Quick sell failed");
+        }
+      } catch (err) {
+        alert("Network request failed");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Convert / Sell to USD";
+        }
       }
     });
 

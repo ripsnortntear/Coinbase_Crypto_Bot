@@ -320,6 +320,24 @@
             <label><input type="checkbox" id="flagFok"> FOK</label>
             <span class="dim" style="margin-left: auto;">Slippage Guard: <strong>0.10%</strong></span>
           </div>
+          <div class="quick-sell-row" style="margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color); display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px;">
+            <div class="form-group" style="flex: 1.4; min-width: 170px; margin-bottom: 0;">
+              <label>Quick Sell / Convert to USD</label>
+              <select id="quickSellAsset" class="input" style="padding: 7px 10px;">
+                <option value="">Loading holdings...</option>
+              </select>
+            </div>
+            <div class="form-group" style="flex: 1; min-width: 120px; margin-bottom: 0;">
+              <label>Amount <span class="dim" id="quickSellEstUsd"></span></label>
+              <input type="number" step="any" id="quickSellAmount" class="input" placeholder="0.00">
+            </div>
+            <div class="quick-size-chips" style="margin-bottom: 2px;">
+              <button type="button" class="chip-btn quick-sell-pct" data-pct="0.25">25%</button>
+              <button type="button" class="chip-btn quick-sell-pct" data-pct="0.50">50%</button>
+              <button type="button" class="chip-btn quick-sell-pct" data-pct="1.00">100%</button>
+            </div>
+            <button type="button" id="btnQuickSell" class="btn btn-sell" style="padding: 8px 14px; white-space: nowrap;">Convert / Sell to USD</button>
+          </div>
         </div>
       </section>
 

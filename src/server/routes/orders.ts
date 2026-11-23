@@ -65,8 +65,15 @@ export function createOrdersRouter(exchangeManager: ExchangeManager): Router {
       const account = db.prepare("SELECT * FROM exchange_accounts WHERE id = ?").get(exchange_account_id) as ExchangeAccount | undefined;
       if (!account) return res.status(404).json({ ok: false, error: "Exchange account not found" });
 
-      const numPrice = Number(price) || 0;
+      let numPrice = Number(price) || 0;
       const numAmount = Number(amount);
+
+      if (type === "market" && numPrice <= 0) {
+        try {
+          const ticker = await exchangeManager.fetchTicker(symbol.toUpperCase(), account.exchange_id);
+          if (ticker?.last > 0) numPrice = ticker.last;
+        } catch {}
+      }
 
       const order = await exchangeManager.createOrder(account, {
         bot_id: null,
