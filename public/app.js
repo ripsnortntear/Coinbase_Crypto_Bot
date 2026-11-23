@@ -525,6 +525,7 @@
       if (!json.ok) return;
 
       state.bots = json.data;
+      syncBotSymbolsIntoDropdowns();
       renderBotsList(state.bots);
       updateModeBadge();
 
@@ -2168,13 +2169,31 @@
     }
   }
 
+  function syncBotSymbolsIntoDropdowns() {
+    if (!Array.isArray(state.bots) || state.bots.length === 0) return;
+    const selectIds = ["selectSymbol", "botSymbol", "btSymbol", "canvasSymbol"];
+    for (const id of selectIds) {
+      const sel = document.getElementById(id);
+      if (!sel) continue;
+      for (const bot of state.bots) {
+        if (!bot.symbol) continue;
+        if (!Array.from(sel.options).some((o) => o.value === bot.symbol)) {
+          const opt = document.createElement("option");
+          opt.value = bot.symbol;
+          opt.textContent = `${bot.symbol} (Active Bot)`;
+          sel.appendChild(opt);
+        }
+      }
+    }
+  }
+
   async function loadCoinbaseMarkets() {
     try {
       const res = await fetch(API_BASE + "/api/market/coinbase-pairs");
       const json = await res.json();
       if (!json.ok || !Array.isArray(json.data) || json.data.length === 0) return;
 
-      const selectIds = ["botSymbol", "btSymbol", "canvasSymbol"];
+      const selectIds = ["selectSymbol", "botSymbol", "btSymbol", "canvasSymbol"];
       for (const id of selectIds) {
         const sel = document.getElementById(id);
         if (!sel) continue;
@@ -2194,6 +2213,7 @@
           sel.value = prevVal;
         }
       }
+      syncBotSymbolsIntoDropdowns();
     } catch (e) {
       console.warn("Could not load full Coinbase markets list:", e);
     }

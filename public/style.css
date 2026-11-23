@@ -338,6 +338,7 @@ body {
   font-size: 0.95rem;
   font-weight: 700;
   outline: none;
+  max-width: 100%;
 }
 
 .symbol-select:focus {
