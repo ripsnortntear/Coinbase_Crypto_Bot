@@ -121,29 +121,33 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
             }
             if (nowTs - this.lastBaseErrorTime <= 300000)
                 return;
-            const cashCheck = await this.hasSufficientCash(this.config.baseOrderAmount);
-            if (!cashCheck.ok) {
-                this.lastBaseErrorTime = nowTs;
-                this.log("warn", `DCA base order paused: need $${this.config.baseOrderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
-                return;
-            }
-            const amount = Number((this.config.baseOrderAmount / ticker.last).toFixed(5));
-            if (amount > 0) {
-                this.isPlacingOrder = true;
-                try {
+            this.isPlacingOrder = true;
+            try {
+                const cashCheck = await this.hasSufficientCash(this.config.baseOrderAmount);
+                if (!cashCheck.ok) {
+                    this.lastBaseErrorTime = nowTs;
+                    this.log("warn", `DCA base order paused: need $${this.config.baseOrderAmount.toFixed(2)} free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Cooling down 5m.`);
+                    return;
+                }
+                if (!this.isBotActive())
+                    return;
+                const amount = Number((this.config.baseOrderAmount / ticker.last).toFixed(5));
+                if (amount > 0) {
                     await this.placeOrder("buy", "market", ticker.last, amount, true);
                     this.lastBuyPrice = ticker.last;
                     this.safetyOrdersPlaced = 0;
                     this.trailingArmed = false;
                     this.peakPrice = 0;
                 }
-                catch (err) {
-                    this.lastBaseErrorTime = Date.now();
-                    this.log("error", `Failed placing DCA base order (cooling down 5m): ${err.message}`);
-                }
-                finally {
-                    this.isPlacingOrder = false;
-                }
+            }
+            catch (err) {
+                if (!this.isBotActive())
+                    return;
+                this.lastBaseErrorTime = Date.now();
+                this.log("error", `Failed placing DCA base order (cooling down 5m): ${err.message}`);
+            }
+            finally {
+                this.isPlacingOrder = false;
             }
             return;
         }
@@ -313,41 +317,45 @@ class DcaStrategy extends base_strategy_1.BaseStrategy {
             this.safetyOrdersPlaced < effectiveMaxSafety &&
             openOrders.length === 0 &&
             nowTs - this.lastSoErrorTime > 300000) {
-            let orderUsd = this.config.safetyOrderAmount;
-            const cashCheck = await this.hasSufficientCash(orderUsd);
-            if (!cashCheck.ok) {
-                const maxAffordableUsd = Number((Math.floor((cashCheck.availableUsd / 1.01) * 100) / 100).toFixed(2));
-                if (maxAffordableUsd >= 1.25) {
-                    orderUsd = maxAffordableUsd;
-                    this.lowCashPaused = false;
-                    this.log("info", `DCA safety order scaled to available cash: $${orderUsd.toFixed(2)} (configured $${this.config.safetyOrderAmount.toFixed(2)}, free $${cashCheck.availableUsd.toFixed(2)})`);
-                }
-                else {
-                    this.lastFreeCash = cashCheck.availableUsd;
-                    if (!this.lowCashPaused) {
-                        this.lowCashPaused = true;
-                        this.log("warn", `DCA safety order auto-paused: need at least $1.25 free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Will auto-resume when funds are available.`);
+            this.isPlacingOrder = true;
+            try {
+                let orderUsd = this.config.safetyOrderAmount;
+                const cashCheck = await this.hasSufficientCash(orderUsd);
+                if (!cashCheck.ok) {
+                    const maxAffordableUsd = Number((Math.floor((cashCheck.availableUsd / 1.01) * 100) / 100).toFixed(2));
+                    if (maxAffordableUsd >= 1.25) {
+                        orderUsd = maxAffordableUsd;
+                        this.lowCashPaused = false;
+                        this.log("info", `DCA safety order scaled to available cash: $${orderUsd.toFixed(2)} (configured $${this.config.safetyOrderAmount.toFixed(2)}, free $${cashCheck.availableUsd.toFixed(2)})`);
                     }
-                    this.lastSoErrorTime = nowTs;
-                    return;
+                    else {
+                        this.lastFreeCash = cashCheck.availableUsd;
+                        if (!this.lowCashPaused) {
+                            this.lowCashPaused = true;
+                            this.log("warn", `DCA safety order auto-paused: need at least $1.25 free USD/USDC (have $${cashCheck.availableUsd.toFixed(2)}). Will auto-resume when funds are available.`);
+                        }
+                        this.lastSoErrorTime = nowTs;
+                        return;
+                    }
                 }
-            }
-            const safetyAmount = Number((orderUsd / ticker.last).toFixed(5));
-            if (safetyAmount > 0) {
-                this.isPlacingOrder = true;
-                try {
+                if (!this.isBotActive())
+                    return;
+                const safetyAmount = Number((orderUsd / ticker.last).toFixed(5));
+                if (safetyAmount > 0) {
                     this.log("info", `DCA safety order ${this.safetyOrdersPlaced + 1}/${effectiveMaxSafety} triggered at $${ticker.last}`);
                     await this.placeOrder("buy", "market", ticker.last, safetyAmount, true);
                     this.lastBuyPrice = ticker.last;
                     this.safetyOrdersPlaced += 1;
                 }
-                catch (err) {
-                    this.lastSoErrorTime = Date.now();
-                    this.log("error", `Failed placing safety order (cooling down 5m): ${err.message}`);
-                }
-                finally {
-                    this.isPlacingOrder = false;
-                }
+            }
+            catch (err) {
+                if (!this.isBotActive())
+                    return;
+                this.lastSoErrorTime = Date.now();
+                this.log("error", `Failed placing safety order (cooling down 5m): ${err.message}`);
+            }
+            finally {
+                this.isPlacingOrder = false;
             }
         }
     }

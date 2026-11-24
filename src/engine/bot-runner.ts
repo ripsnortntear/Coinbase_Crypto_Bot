@@ -21,6 +21,7 @@ export class BotRunner extends EventEmitter {
   private exchangeManager: ExchangeManager;
   private activeStrategies: Map<string, BaseStrategy> = new Map();
   private isRunning = false;
+  private isTicking = false;
   private loopInterval: NodeJS.Timeout | null = null;
   private candleInterval: NodeJS.Timeout | null = null;
   private reconcileInterval: NodeJS.Timeout | null = null;
@@ -194,27 +195,33 @@ export class BotRunner extends EventEmitter {
   }
 
   private async tickLoop(): Promise<void> {
-    for (const symbol of this.activeSymbols) {
-      try {
-        const ticker = await this.exchangeManager.fetchTicker(symbol);
-        this.emit("ticker", ticker);
+    if (this.isTicking) return;
+    this.isTicking = true;
+    try {
+      for (const symbol of this.activeSymbols) {
+        try {
+          const ticker = await this.exchangeManager.fetchTicker(symbol);
+          this.emit("ticker", ticker);
 
-        // Match paper orders against this fresh ticker
-        const trades = this.exchangeManager.getPaperEngine().matchOrdersAgainstTicker(ticker);
-        for (const trd of trades) {
-          this.emit("trade", trd);
-        }
-
-        // Notify active strategies for this symbol
-        for (const [botId, strategy] of this.activeStrategies.entries()) {
-          const bot = this.db.prepare("SELECT symbol FROM trading_bots WHERE id = ?").get(botId) as any;
-          if (bot && bot.symbol === symbol) {
-            await strategy.onTick(ticker);
+          // Match paper orders against this fresh ticker
+          const trades = this.exchangeManager.getPaperEngine().matchOrdersAgainstTicker(ticker);
+          for (const trd of trades) {
+            this.emit("trade", trd);
           }
+
+          // Notify active strategies for this symbol
+          for (const [botId, strategy] of this.activeStrategies.entries()) {
+            const bot = this.db.prepare("SELECT symbol FROM trading_bots WHERE id = ?").get(botId) as any;
+            if (bot && bot.symbol === symbol) {
+              await strategy.onTick(ticker);
+            }
+          }
+        } catch (err: any) {
+          // Ticker fetch error (e.g. temporary network blip)
         }
-      } catch (err: any) {
-        // Ticker fetch error (e.g. temporary network blip)
       }
+    } finally {
+      this.isTicking = false;
     }
   }
 
