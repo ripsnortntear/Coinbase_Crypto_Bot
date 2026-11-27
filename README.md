@@ -3,7 +3,7 @@
 # ⚡ COINBASE CRYPTO BOT
 ### Autonomous • Fee-Shielded • Zero-Dependency Algorithmic Trading Terminal
 
-[![GitHub Release](https://img.shields.io/github/v/release/ripsnortntear/Coinbase_Crypto_Bot?style=for-the-badge&logo=github&color=7c3aed)](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-v1.2.18-7c3aed?style=for-the-badge&logo=github)](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/ripsnortntear/Coinbase_Crypto_Bot/ci.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=CI%20Tests)](https://github.com/ripsnortntear/Coinbase_Crypto_Bot/actions/workflows/ci.yml)
 [![Node.js](https://img.shields.io/badge/Node.js-v22+-339933?style=for-the-badge&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?style=for-the-badge&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
