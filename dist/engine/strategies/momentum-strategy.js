@@ -10,6 +10,7 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
     lastBuyErrorTime = 0;
     lastStopLossTime = 0;
     lastSlCooldownLogTime = 0;
+    lastGuardLogTime = 0;
     isPlacingOrder = false;
     constructor(bot, account, exchangeManager) {
         super(bot, account, exchangeManager);
@@ -93,12 +94,18 @@ class MomentumStrategy extends base_strategy_1.BaseStrategy {
             }
             const guard = this.canEnterBuy();
             if (!guard.allowed) {
-                this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
+                if (nowTs - this.lastGuardLogTime > 300000) {
+                    this.lastGuardLogTime = nowTs;
+                    this.log("warn", `🛡️ Momentum BUY paused by Guard: ${guard.reason}`);
+                }
                 return;
             }
             const expGuard = await this.checkExposureCap();
             if (!expGuard.allowed) {
-                this.log("warn", `🛡️ Momentum BUY paused by Exposure Cap: ${expGuard.reason}`);
+                if (nowTs - this.lastGuardLogTime > 300000) {
+                    this.lastGuardLogTime = nowTs;
+                    this.log("warn", `🛡️ Momentum BUY paused by Exposure Cap: ${expGuard.reason}`);
+                }
                 return;
             }
             const cashCheck = await this.hasSufficientCash(this.config.orderAmount);
